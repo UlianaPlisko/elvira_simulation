@@ -1,0 +1,13 @@
+.:53 { 
+    acl { 
+        192.168.1.0/24 forward . 172.20.0.10:80; # facultyA 
+        192.168.2.0/24 forward . 172.20.0.11:80; # facultyB (future) 
+        192.168.3.0/24 forward . 172.20.0.12:80; # facultyC (future) 
+        192.168.4.0/24 forward . 172.20.0.13:80; # facultyD (future) 
+        192.168.5.0/24 forward . 172.20.0.14:80; # facultyE (future) 
+        } 
+        forward . 172.20.0.2:80 
+        prometheus :9153 
+        errors 
+        health 
+}

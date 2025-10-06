@@ -3,18 +3,18 @@ FROM nginx:alpine
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
     apk update && \
     apk add --no-cache nodejs npm prometheus-node-exporter && \
+    npm install -g ts-node && \
     rm -rf /var/cache/apk/*
 
-
 COPY infra/nginx/default.conf /etc/nginx/conf.d/default.conf
-COPY mock-content/ /usr/share/nginx/html/books/
+VOLUME /usr/share/nginx/html/books/
 
-COPY applications/central-manager/package.json /app/
+COPY applications/edge-managers/facultyA/package.json /app/
 
 WORKDIR /app
 RUN npm install
 
-COPY applications/central-manager/src/ /app/src/
+COPY applications/edge-managers/facultyA/src/ /app/src/
 
 EXPOSE 80 9100 3000
 

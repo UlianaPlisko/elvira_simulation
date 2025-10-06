@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'central-node'
+    static_configs:
+      - targets: ['central-nginx:9100']  # Node Exporter для central
+  - job_name: 'facultyA-node'
+    static_configs:
+      - targets: ['facultyA-edge:9100']  # Node Exporter для facultyA
+  - job_name: 'central-custom'
+    static_configs:
+      - targets: ['central-nginx:3000']  # Ваши custom метрики (энергия)
+  - job_name: 'facultyA-custom'
+    static_configs:
+      - targets: ['facultyA-edge:3000']  # Custom для edge
+  - job_name: 'dns'
+    static_configs:
+      - targets: ['main-dns:9153', 'secondary-dns:9153']

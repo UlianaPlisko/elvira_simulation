@@ -1,0 +1,60 @@
+services:
+  central-nginx:
+    build:
+      context: .
+      dockerfile: applications/central-manager/Dockerfile
+    image: elvira-simulation-central-nginx
+    ports:
+      - "8080:80"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.2
+    depends_on:
+      - main-dns
+      - secondary-dns
+  facultyA-edge:
+    build:
+      context: .
+      dockerfile: applications/edge-managers/facultyA/Dockerfile
+    image: elvira-simulation-facultya-edge
+    ports:
+      - "8081:80"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.10
+    depends_on:
+      - central-nginx
+  main-dns:
+    image: coredns/coredns:latest
+    ports:
+      - "53:53/udp"
+    volumes:
+      - ./infra/dns/main/Corefile:/Corefile:ro
+      - ./infra/dns/main/zones:/zones:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.3
+  secondary-dns:
+    image: coredns/coredns:latest
+    ports:
+      - "1053:53/udp"
+    volumes:
+      - ./infra/dns/secondary/Corefile:/Corefile:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.4
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.5
+networks:
+  elvira-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "172.20.0.0/16"
