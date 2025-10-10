@@ -1,13 +1,33 @@
-.:53 { 
-    acl { 
-        192.168.1.0/24 forward . 172.20.0.10:80; # facultyA 
-        192.168.2.0/24 forward . 172.20.0.11:80; # facultyB (future) 
-        192.168.3.0/24 forward . 172.20.0.12:80; # facultyC (future) 
-        192.168.4.0/24 forward . 172.20.0.13:80; # facultyD (future) 
-        192.168.5.0/24 forward . 172.20.0.14:80; # facultyE (future) 
-        } 
-        forward . 172.20.0.2:80 
-        prometheus :9153 
-        errors 
-        health 
+# infra/dns/secondary/Corefile
+# Secondary CoreDNS — CIDR-based split DNS (view), без lua
+
+# Общие плагины (слушаем по 53 и логируем)
+.:53 {
+    errors
+    log
+    prometheus :9153
+    health
+}
+
+# Блок для elvira.lib: сначала view для facultyA (если client_ip в подсети facultyA → вернём edge IP)
+elvira.lib:53 {
+    view facultyA {
+        expr incidr(client_ip(), '192.168.1.0/24')
+    }
+    hosts {
+        172.20.0.10 elvira.lib facultyA.elvira.lib
+    }
+    log
+    errors
+    prometheus :9153
+}
+
+# Fallback: если не попал в предыдущие view, отдадим central
+elvira.lib:53 {
+    hosts {
+        172.20.0.2 elvira.lib central.elvira.lib
+    }
+    log
+    errors
+    prometheus :9153
 }

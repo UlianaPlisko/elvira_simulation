@@ -20,5 +20,8 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["applications/**/*.ts", "scripts/**/*.ts"]
+  "include": [
+    "applications/central-manager/src/**/*.ts",
+    "applications/edge-managers/facultyA/src/**/*.ts"
+  ],
 }
