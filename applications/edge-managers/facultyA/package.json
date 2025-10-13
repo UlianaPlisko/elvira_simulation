@@ -4,7 +4,8 @@
   "description": "Edge manager for facultyA in Elvira CDN",
   "main": "src/main.ts",
   "scripts": {
-    "start": "ts-node src/main.ts"
+    "build": "tsc",
+    "start": "node dist/main.js"
   },
   "dependencies": {
     "prom-client": "^15.1.3",  

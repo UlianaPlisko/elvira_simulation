@@ -43,6 +43,8 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.4
+      facultyA-net:
+        ipv4_address: 192.168.1.5
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -52,9 +54,36 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.5
+  student-facultyA:
+    build:
+      context: .
+      dockerfile: applications/simulators/student-sim/Dockerfile
+    image: elvira-sim-student-facultya:latest
+    container_name: student-facultyA
+    working_dir: /sim
+    environment:
+      - SIM_CONC=20
+      - SIM_DURATION=300
+      - SIM_THINK=800
+      - SIM_URL=http://elvira.lib/books/
+      - SIM_ZIPF_ALPHA=0.9
+      - SIM_EXAM_SPIKE_AT=120
+      - SIM_EXAM_SPIKE_FACTOR=3
+    networks:
+      facultyA-net:
+        ipv4_address: 192.168.1.50
+    dns:
+      - 192.168.1.5 
+    depends_on:
+      - secondary-dns
 networks:
   elvira-net:
     driver: bridge
     ipam:
       config:
         - subnet: "172.20.0.0/16"
+  facultyA-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.1.0/24"

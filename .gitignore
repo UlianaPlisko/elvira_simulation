@@ -3,3 +3,4 @@ node_modules/
 *.log
 docker-compose.override.yml
 .vscode/
+.github/
