@@ -4,8 +4,8 @@
   "description": "Central manager for Elvira CDN energy optimization",
   "main": "src/main.ts",
   "scripts": {
-    "dev": "ts-node src/main.ts",
-    "build": "tsc"
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/main.js"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
