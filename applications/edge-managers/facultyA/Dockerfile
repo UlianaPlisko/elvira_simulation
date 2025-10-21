@@ -19,7 +19,30 @@ RUN npm run build
 
 # ---- runtime ----
 FROM nginx:alpine
-# ... runtime steps (copy dist, node runtime if needed)
+
+# Устанавливаем node runtime и другие пакеты
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash iproute2 && \
+    rm -rf /var/cache/apk/*
+
+# nginx config (предполагаю, что conf в infra/nginx/edge.conf или подобном — адаптируй путь)
+COPY infra/nginx/edge-default.conf /etc/nginx/nginx.conf  
+
+# Создаём директории для кэша и логов
+RUN mkdir -p /var/cache/nginx/elvira_cache /var/log/edge /var/www/elvira && \
+    chown -R nginx:nginx /var/cache/nginx /var/www/elvira || true
+
+# Копируем собранное приложение и зависимости
 COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/node_modules /app/node_modules
-# other runtime steps...
+COPY applications/edge-managers/facultyA/package.json /app/
+
+# Копируем entrypoint
+COPY scripts/edge-entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+WORKDIR /app
+
+EXPOSE 80 9100 3000 3100 
+
+ENTRYPOINT ["/app/entrypoint.sh"]

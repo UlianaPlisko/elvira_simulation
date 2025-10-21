@@ -1,33 +1,19 @@
-# infra/dns/secondary/Corefile
-# Secondary CoreDNS — CIDR-based split DNS (view), без lua
-
-# Общие плагины (слушаем по 53 и логируем)
 .:53 {
     errors
     log
     prometheus :9153
-    health
+    health :8080  # Optional health check endpoint
 }
 
-# Блок для elvira.lib: сначала view для facultyA (если client_ip в подсети facultyA → вернём edge IP)
 elvira.lib:53 {
-    view facultyA {
-        expr incidr(client_ip(), '192.168.1.0/24')
+    ecs {
+        fallthrough  # Continue to next plugin even if no ECS
     }
-    hosts {
-        172.20.0.10 elvira.lib facultyA.elvira.lib
+    template IN A elvira.lib. {
+        match .*
+        answer "{{ if hasPrefix (index .Metadata \"ecs/subnet\") \"192.168.1.\" }}172.20.0.10 elvira.lib{{ else }}172.20.0.2 elvira.lib{{ end }}"
+        ttl 300
     }
     log
     errors
-    prometheus :9153
-}
-
-# Fallback: если не попал в предыдущие view, отдадим central
-elvira.lib:53 {
-    hosts {
-        172.20.0.2 elvira.lib central.elvira.lib
-    }
-    log
-    errors
-    prometheus :9153
 }

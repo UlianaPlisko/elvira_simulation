@@ -25,11 +25,13 @@ FROM nginx:alpine
 
 # Устанавливаем node runtime только если нужно (мы запустим node из dist)
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash && \
+    apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash iproute2 && \
     rm -rf /var/cache/apk/*
 
 # nginx config и статический контент
-COPY infra/nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY infra/nginx/default.conf /etc/nginx/nginx.conf
+RUN mkdir -p /var/www/elvira/books && \
+    chown -R nginx:nginx /var/www/elvira /usr/share/nginx/html || true
 COPY mock-content/ /usr/share/nginx/html/books/
 
 # Копируем собранное приложение и его зависимости из builder

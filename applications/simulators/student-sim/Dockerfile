@@ -10,11 +10,20 @@ RUN npm ci --no-audit --no-fund
 RUN npm run build
 
 FROM node:20-alpine
+# Добавляем iproute2 для ip route
+RUN apk add --no-cache iproute2
+
 WORKDIR /sim
 COPY --from=builder /sim/dist /sim/dist
 COPY --from=builder /sim/node_modules /sim/node_modules
 COPY applications/simulators/student-sim/package.json /sim/package.json
 
+# Копируем entrypoint
+COPY scripts/student-entrypoint.sh /sim/entrypoint.sh
+RUN chmod +x /sim/entrypoint.sh
+
 ENV NODE_ENV=production
 EXPOSE 9400
-CMD ["node", "dist/sim.js"]
+
+ENTRYPOINT ["/sim/entrypoint.sh"]
+CMD ["node", "dist/sim.js"]  

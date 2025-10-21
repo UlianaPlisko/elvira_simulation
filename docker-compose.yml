@@ -12,6 +12,7 @@ services:
     depends_on:
       - main-dns
       - secondary-dns
+    privileged: true
   facultyA-edge:
     build:
       context: .
@@ -24,18 +25,24 @@ services:
         ipv4_address: 172.20.0.10
     depends_on:
       - central-nginx
+    privileged: true
   main-dns:
-    image: coredns/coredns:latest
+    build:
+      context: .
+      dockerfile: infra/dns/main/Dockerfile  # Point to the copied Dockerfile
+    image: elvira-simulation-main-dns  # New image name
     ports:
       - "53:53/udp"
     volumes:
       - ./infra/dns/main/Corefile:/Corefile:ro
-      - ./infra/dns/main/zones:/zones:ro
+      - ./infra/dns/main/zones:/zones:ro  # Keep if you have static zones; optional now
     networks:
       elvira-net:
         ipv4_address: 172.20.0.3
   secondary-dns:
-    image: coredns/coredns:latest
+    build:
+      context: .
+      dockerfile: infra/dns/secondary/Dockerfile 
     ports:
       - "1053:53/udp"
     volumes:
@@ -45,6 +52,10 @@ services:
         ipv4_address: 172.20.0.4
       facultyA-net:
         ipv4_address: 192.168.1.5
+    sysctls:
+      - net.ipv4.ip_forward=1
+    cap_add:
+      - NET_ADMIN
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -73,9 +84,11 @@ services:
       facultyA-net:
         ipv4_address: 192.168.1.50
     dns:
-      - 192.168.1.5 
+      - 172.20.0.3 
     depends_on:
+      - main-dns
       - secondary-dns
+    privileged: true
 networks:
   elvira-net:
     driver: bridge
