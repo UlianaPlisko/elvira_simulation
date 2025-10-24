@@ -1,14 +1,16 @@
 elvira.lib:53 {
-    ecs {}  # Inject ECS based on source IP (default /24; customize with 'ecs 24' if needed)
-    forward . 172.20.0.4:53  # Internal port to secondary (not host 1053)
+    ecs {
+        mask_v4 24
+    }
+    forward . 172.20.0.4:53 
     log
     errors
 }
 
-.:53 {  # Catch-all for other zones (e.g., from /zones)
+.:53 {
     errors
     log
     prometheus :9153
     health :8080
-    forward . 8.8.8.8  # Or your upstream for non-elvira queries
+    forward . 8.8.8.8
 }

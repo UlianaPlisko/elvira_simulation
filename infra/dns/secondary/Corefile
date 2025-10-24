@@ -1,18 +1,17 @@
-.:53 {
-    errors
-    log
-    prometheus :9153
-    health :8080  # Optional health check endpoint
-}
-
 elvira.lib:53 {
     ecs {
-        fallthrough  # Continue to next plugin even if no ECS
+        mask_v4 24
     }
     template IN A elvira.lib. {
         match .*
-        answer "{{ if hasPrefix (index .Metadata \"ecs/subnet\") \"192.168.1.\" }}172.20.0.10 elvira.lib{{ else }}172.20.0.2 elvira.lib{{ end }}"
-        ttl 300
+        answer "{{ .Name }} 300 IN A {{ if eq (.Meta \"ecs/subnet\") \"192.168.1.0/24\" }}172.20.0.10{{ else }}172.20.0.2{{ end }}"
+        additional "{{ .Name }} 300 IN TXT ecs/subnet: {{ .Meta \"ecs/subnet\" }}"  # Дебага
+        fallthrough
+    }
+    template IN AAAA elvira.lib. {
+        match .*
+        rcode NOERROR
+        fallthrough
     }
     log
     errors

@@ -11,7 +11,7 @@ RUN npm run build
 
 FROM node:20-alpine
 # Добавляем iproute2 для ip route
-RUN apk add --no-cache iproute2
+RUN apk add --no-cache iproute2 bind-tools
 
 WORKDIR /sim
 COPY --from=builder /sim/dist /sim/dist
