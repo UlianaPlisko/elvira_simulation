@@ -4,10 +4,16 @@ global:
 scrape_configs:
   - job_name: 'central-node'
     static_configs:
-      - targets: ['central-nginx:9100']  # Node Exporter для central
+      - targets: ['172.20.0.6:9100']  # node-exporter-central (disk, CPU, etc.)
   - job_name: 'facultyA-node'
     static_configs:
-      - targets: ['facultyA-edge:9100']  # Node Exporter для facultyA
+      - targets: ['172.20.0.11:9100']  # node-exporter-facultyA
+  - job_name: 'nginx-central'
+    static_configs:
+      - targets: ['172.20.0.7:9113']  # nginx-exporter-central (requests)
+  - job_name: 'nginx-facultyA'
+    static_configs:
+      - targets: ['172.20.0.12:9113']  # nginx-exporter-facultyA
   - job_name: 'central-custom'
     static_configs:
       - targets: ['central-nginx:3000']  # Ваши custom метрики (энергия)

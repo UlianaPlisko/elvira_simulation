@@ -1,7 +1,7 @@
 const CONFIG = {
   energy: { Pidle: 63, Ppeak: 92, alpha: 37000 }, 
   load: { threshold: 0.75, deltaSeconds: 300 }, 
-  simulation: { peakCapacity: 200, zipfAlpha: 0.8 },
+  simulation: { peakCapacity: 200, zipfAlpha: 0.8, duration: 300},
   subnets: {
     facultyA: '192.168.1.0/24',
     facultyB: '192.168.2.0/24',

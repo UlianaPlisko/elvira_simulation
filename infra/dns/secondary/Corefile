@@ -13,6 +13,15 @@ elvira.lib:53 {
         rcode NOERROR
         fallthrough
     }
+    trace
     log
     errors
+}
+
+.:53 { 
+    errors
+    log
+    prometheus :9153  # Key line: Exposes /metrics on 9153
+    health :8080      # Optional: If you want health checks
+    forward . 8.8.8.8 # Optional: Upstream for non-elvira queries
 }

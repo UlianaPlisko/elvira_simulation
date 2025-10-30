@@ -55,8 +55,7 @@ const SIM_ZIPF_ALPHA = parseFloat(process.env.SIM_ZIPF_ALPHA || '0.9');
 const EXAM_AT = parseInt(process.env.SIM_EXAM_SPIKE_AT || '0', 10);
 const EXAM_FACTOR = parseFloat(process.env.SIM_EXAM_SPIKE_FACTOR || '1');
 
-const BOOKS_PATH = '/books';
-const bookUrl = (b: string) => `${SIM_URL_BASE.replace(/\/$/, '')}${BOOKS_PATH}/${b}`;
+const bookUrl = (b: string) => `${SIM_URL_BASE.replace(/\/$/, '')}/${b}`;
 
 const books = ['book1.pdf','book2.pdf','book3.pdf','book4.pdf'];
 const sampler = buildZipfSampler(books.length, SIM_ZIPF_ALPHA);

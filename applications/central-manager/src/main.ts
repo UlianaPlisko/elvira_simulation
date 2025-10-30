@@ -42,6 +42,43 @@ app.post('/trigger-prefetch', async (req, res) => {
   }
 });
 
+app.get('/eco-index', async (req, res) => {
+  try {
+    const promUrl = 'http://172.20.0.5:9090/api/v1/query';  // Prometheus IP in elvira-net
+    const simDurationHours = CONFIG.simulation.duration / 3600;  // Add to config.ts, e.g., 300s -> hours; or from env
+
+    // E_total: Sum energies (matches Etotal including transitions)
+    const eQuery = 'sum(central_energy_kwh + edge_energy_kwh_facultyA)';
+    const eRes = await axios.get(`${promUrl}?query=${encodeURIComponent(eQuery)}`);
+    const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || 0);
+
+    // U: Avg storage util % (matches formula; avg over central + facultyA)
+    const uQuery = '100 * (1 - sum(node_filesystem_avail_bytes{job=~"central-node|facultyA-node", mountpoint="/"} ) / sum(node_filesystem_size_bytes{job=~"central-node|facultyA-node", mountpoint="/"} ))';  // Root filesystem; adjust mountpoint if needed
+    const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
+    const u = parseFloat(uRes.data.data.result[0]?.value[1] || 0);
+
+    // R: Total requests served
+    const rQuery = 'sum(nginx_http_requests_total)';
+    const rRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rQuery)}`);
+    const r = parseFloat(rRes.data.data.result[0]?.value[1] || 0);
+
+    // T: Operational hours
+    const t = simDurationHours;
+
+    // EI (exact formula)
+    const ei = (eTotal * (1 - u / 100)) / (r * t || 1);  // Avoid div by 0
+
+    // Optional extension: Carbon (as in article)
+    const carbonFactor = 0.5;  // kg CO2e/kWh
+    const co2e = ei * carbonFactor;
+
+    res.json({ ei: ei.toFixed(6), eTotal, u: u.toFixed(2), r, t, co2e: co2e.toFixed(6) });
+  } catch (e) {
+    console.error('EI calc error:', e);
+    res.status(500).json({ error: 'Failed to compute EI' });
+  }
+});
+
 const server = app.listen(CONTROL_PORT, () => {
   console.log(`Central control API listening on ${CONTROL_PORT}`);
 });

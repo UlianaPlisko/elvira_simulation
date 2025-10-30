@@ -18,11 +18,18 @@ const cpuLoadGauge = new promClient.Gauge({
   name: 'central_cpu_load',
   help: 'CPU load for central server'
 });
+const transitionCounter = new promClient.Counter({  // NEW: For alpha transitions
+  name: 'central_transitions_total',
+  help: 'Total server state transitions for central'
+});
 
 // Регистрация метрик в реестре
 register.registerMetric(loadGauge);
 register.registerMetric(energyCounter);
 register.registerMetric(cpuLoadGauge);
+register.registerMetric(transitionCounter);
+
+let previousLambda = 0;
 
 // Функция для получения CPU load с фиксом TS (используем keyof для безопасного индексирования)
 function getCpuLoad(): number {
@@ -48,33 +55,31 @@ function getCpuLoad(): number {
 
 export async function updateMetrics() {
   try {
-    // Шаг 1: Получаем Nginx load из stub_status
+    // Шаг 1-3: unchanged (get nginxLambda, cpuLoad, combinedLambda)
     const { data } = await axios.get('http://localhost/stub_status');
     const activeMatch = data.match(/Active connections: (\d+)/);
     const active = activeMatch ? parseInt(activeMatch[1], 10) : 0;
     const nginxLambda = active / CONFIG.simulation.peakCapacity;
-
-    // Шаг 2: Получаем CPU load из os модуля (альтернатива скрейпу Node Exporter)
     const cpuLoad = getCpuLoad();
-
-    // Шаг 3: Комбинируем нагрузки (50/50, можно настроить веса)
     const combinedLambda = (nginxLambda + cpuLoad) / 2;
     loadGauge.set(combinedLambda);
     cpuLoadGauge.set(cpuLoad);
 
-    // Шаг 4: Расчет мощности и энергии по вашей модели из config.ts
+    // Шаг 4: Расчет мощности и энергии (matches article P(t) and ΔE)
     const power = CONFIG.energy.Pidle + (CONFIG.energy.Ppeak - CONFIG.energy.Pidle) * combinedLambda;
-    const energyDelta = power * CONFIG.load.deltaSeconds / 3600000; // Перевод в kWh за слот δ=300s
+    const energyDelta = power * CONFIG.load.deltaSeconds / 3600000;
     energyCounter.inc(energyDelta);
 
-    // Логирование для отладки
     console.log(`Central: Nginx Lambda=${nginxLambda.toFixed(2)}, CPU Load=${cpuLoad.toFixed(2)}, Combined Lambda=${combinedLambda.toFixed(2)}, Power=${power.toFixed(2)}W, Energy Delta=${energyDelta.toFixed(6)}kWh`);
 
-    // Шаг 5: Stub для transitions (расширьте для on/off серверов с alpha=37000J)
-    if (combinedLambda > CONFIG.load.threshold) {
-      console.log('High load detected (>0.75) - potential server transition needed');
-      // Здесь добавьте логику: alpha * transitions (в Joules, конвертируйте в kWh если нужно)
+    // Шаг 5: Detect transitions and add alpha (matches article)
+    if (combinedLambda > CONFIG.load.threshold && previousLambda <= CONFIG.load.threshold) {
+      const alphaKwh = CONFIG.energy.alpha / 3600000;  // J to kWh (~0.0103)
+      energyCounter.inc(alphaKwh);  // Add to E_total
+      transitionCounter.inc(1);
+      console.log(`Transition detected (lambda ${previousLambda.toFixed(2)} -> ${combinedLambda.toFixed(2)} > ${CONFIG.load.threshold}) - added alpha ${alphaKwh.toFixed(4)} kWh`);
     }
+    previousLambda = combinedLambda;  // Update for next interval
   } catch (e) {
     console.error('Metrics update error in central:', e);
   }

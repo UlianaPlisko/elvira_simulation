@@ -5,7 +5,9 @@ services:
       dockerfile: applications/central-manager/Dockerfile
     image: elvira-simulation-central-nginx
     ports:
-      - "8080:80"
+    - "8080:80"  # Existing
+    - "3000:3000"  # For /metrics (Prometheus already scrapes internally, but useful for debug)
+    - "3100:3100"  # For /eco-index, /health, etc.
     networks:
       elvira-net:
         ipv4_address: 172.20.0.2
@@ -19,7 +21,8 @@ services:
       dockerfile: applications/edge-managers/facultyA/Dockerfile
     image: elvira-simulation-facultya-edge
     ports:
-      - "8081:80"
+    - "8081:80"  # Existing
+    - "3001:3000"
     networks:
       elvira-net:
         ipv4_address: 172.20.0.10
@@ -89,6 +92,60 @@ services:
       - main-dns
       - secondary-dns
     privileged: true
+  node-exporter-central:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-central
+    ports:
+      - "9100:9100"  # Matches your prometheus.yml
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.6
+    volumes:
+      - /:/host:ro
+    command:
+      - '--path.rootfs=/host'
+    depends_on:
+      - central-nginx
+  node-exporter-facultyA:
+    image: prom/node-exporter:latest
+    container_name: node-exporter-facultyA
+    ports:
+      - "9101:9100"  # Separate port to avoid conflict
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.11
+    volumes:
+      - /:/host:ro
+    command:
+      - '--path.rootfs=/host'
+    depends_on:
+      - facultyA-edge
+
+  nginx-exporter-central:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-central
+    ports:
+      - "9113:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.7
+    command:  # Scrape central's stub_status (your metrics.ts uses it)
+      - -nginx.scrape-uri=http://172.20.0.2/stub_status
+    depends_on:
+      - central-nginx
+
+  nginx-exporter-facultyA:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-facultyA
+    ports:
+      - "9114:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.12
+    command:
+      - -nginx.scrape-uri=http://172.20.0.10/stub_status
+    depends_on:
+      - facultyA-edge
 networks:
   elvira-net:
     driver: bridge

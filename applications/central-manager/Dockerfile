@@ -32,7 +32,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repos
 COPY infra/nginx/default.conf /etc/nginx/nginx.conf
 RUN mkdir -p /var/www/elvira/books && \
     chown -R nginx:nginx /var/www/elvira /usr/share/nginx/html || true
-COPY mock-content/ /usr/share/nginx/html/books/
+COPY mock-content/ /var/www/elvira/books/
 
 # Копируем собранное приложение и его зависимости из builder
 COPY --from=builder /app/dist /app/dist
