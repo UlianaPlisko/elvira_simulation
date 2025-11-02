@@ -146,6 +146,22 @@ services:
       - -nginx.scrape-uri=http://172.20.0.10/stub_status
     depends_on:
       - facultyA-edge
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest 
+    container_name: cadvisor
+    ports:
+      - "8082:8080"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.13
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  // Already good for WSL
+      - /sys:/sys:ro
+    privileged: true
+    depends_on:
+      - central-nginx
+      - facultyA-edge
 networks:
   elvira-net:
     driver: bridge

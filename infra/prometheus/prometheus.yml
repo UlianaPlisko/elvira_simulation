@@ -26,3 +26,6 @@ scrape_configs:
   - job_name: 'student-facultyA'
     static_configs:
       - targets: ['student-facultyA:9400']
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['172.20.0.13:8080']

@@ -57,6 +57,7 @@ export async function updateMetrics() {
   try {
     // Шаг 1-3: unchanged (get nginxLambda, cpuLoad, combinedLambda)
     const { data } = await axios.get('http://localhost/stub_status');
+    console.log('stub_status success, data:', data);  // ADD
     const activeMatch = data.match(/Active connections: (\d+)/);
     const active = activeMatch ? parseInt(activeMatch[1], 10) : 0;
     const nginxLambda = active / CONFIG.simulation.peakCapacity;

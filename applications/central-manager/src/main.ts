@@ -1,5 +1,6 @@
 // applications/central-manager/src/main.ts
 import './monitoring/metrics';
+console.log('metrics imported successfully');  // ADD
 import CONFIG from './config';
 import express from 'express';
 import axios from 'axios';
@@ -44,37 +45,54 @@ app.post('/trigger-prefetch', async (req, res) => {
 
 app.get('/eco-index', async (req, res) => {
   try {
-    const promUrl = 'http://172.20.0.5:9090/api/v1/query';  // Prometheus IP in elvira-net
-    const simDurationHours = CONFIG.simulation.duration / 3600;  // Add to config.ts, e.g., 300s -> hours; or from env
+    const promUrl = 'http://172.20.0.5:9090/api/v1/query';
+    const simDurationHours = CONFIG.simulation.duration / 3600;
 
-    // E_total: Sum energies (matches Etotal including transitions)
-    const eQuery = 'sum(central_energy_kwh + edge_energy_kwh_facultyA)';
+    // === E_total ===
+    const eQuery = 'sum(central_energy_kwh) or vector(0) + sum(edge_energy_kwh_facultyA) or vector(0)';
     const eRes = await axios.get(`${promUrl}?query=${encodeURIComponent(eQuery)}`);
-    const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || 0);
+    const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || '0');
 
-    // U: Avg storage util % (matches formula; avg over central + facultyA)
-    const uQuery = '100 * (1 - sum(node_filesystem_avail_bytes{job=~"central-node|facultyA-node", mountpoint="/"} ) / sum(node_filesystem_size_bytes{job=~"central-node|facultyA-node", mountpoint="/"} ))';  // Root filesystem; adjust mountpoint if needed
+    // === U: ЧИСЛО, НЕ СТРОКА ===
+    const uQuery = `
+      100 * (
+        sum(container_fs_usage_bytes{container=~"central-nginx|facultyA-edge"}) 
+        / 
+        sum(container_fs_capacity_bytes{container=~"central-nginx|facultyA-edge"})
+      )
+    `;
     const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
-    const u = parseFloat(uRes.data.data.result[0]?.value[1] || 0);
+    const uRaw = uRes.data.data.result.length > 0 
+      ? parseFloat(uRes.data.data.result[0].value[1])
+      : 0;
+    const u = Number(uRaw.toFixed(2));  // ← ЧИСЛО!
 
-    // R: Total requests served
+    // === R ===
     const rQuery = 'sum(nginx_http_requests_total)';
     const rRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rQuery)}`);
-    const r = parseFloat(rRes.data.data.result[0]?.value[1] || 0);
+    const r = parseFloat(rRes.data.data.result[0]?.value[1] || '0');
 
-    // T: Operational hours
+    // === T ===
     const t = simDurationHours;
 
-    // EI (exact formula)
-    const ei = (eTotal * (1 - u / 100)) / (r * t || 1);  // Avoid div by 0
+    // === EI: u — число → всё ок ===
+    const ei = (eTotal * (1 - u / 100)) / (r * t || 1);
 
-    // Optional extension: Carbon (as in article)
-    const carbonFactor = 0.5;  // kg CO2e/kWh
+    // === CO2 ===
+    const carbonFactor = 0.5;
     const co2e = ei * carbonFactor;
 
-    res.json({ ei: ei.toFixed(6), eTotal, u: u.toFixed(2), r, t, co2e: co2e.toFixed(6) });
-  } catch (e) {
-    console.error('EI calc error:', e);
+    // === ОТВЕТ: u — число, ei — число ===
+    res.json({
+      ei: ei.toFixed(6),
+      eTotal: Number(eTotal.toFixed(12)),  // убираем научную нотацию
+      u: u.toFixed(2),                     // строка только для JSON
+      r,
+      t,
+      co2e: co2e.toFixed(6)
+    });
+  } catch (e: any) {
+    console.error('EI calc error:', e.message || e);
     res.status(500).json({ error: 'Failed to compute EI' });
   }
 });
