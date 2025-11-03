@@ -135,7 +135,7 @@ services:
       elvira-net:
         ipv4_address: 10.50.0.7
     command:  # Scrape central's stub_status (your metrics.ts uses it)
-      - -nginx.scrape-uri=http://172.20.0.2/stub_status
+      - -nginx.scrape-uri=http://10.50.0.2/stub_status
     depends_on:
       - central-nginx
 
@@ -148,7 +148,7 @@ services:
       elvira-net:
         ipv4_address: 10.50.0.12
     command:
-      - -nginx.scrape-uri=http://172.20.0.10/stub_status
+      - -nginx.scrape-uri=http://10.50.0.10/stub_status
     depends_on:
       - facultyA-edge
   cadvisor:

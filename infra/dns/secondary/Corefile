@@ -4,7 +4,7 @@ elvira.lib:53 {
     }
     template IN A elvira.lib. {
         match .*
-        answer "{{ .Name }} 300 IN A {{ if eq (.Meta \"ecs/subnet\") \"192.168.1.0/24\" }}172.20.0.10{{ else }}172.20.0.2{{ end }}"
+        answer "{{ .Name }} 300 IN A {{ if eq (.Meta \"ecs/subnet\") \"10.50.1.0/24\" }}10.50.0.10{{ else }}10.50.0.2{{ end }}"
         additional "{{ .Name }} 300 IN TXT ecs/subnet: {{ .Meta \"ecs/subnet\" }}"  # Дебага
         fallthrough
     }
