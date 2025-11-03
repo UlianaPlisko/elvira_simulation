@@ -8,9 +8,12 @@ services:
     - "8080:80"  # Existing
     - "3000:3000"  # For /metrics (Prometheus already scrapes internally, but useful for debug)
     - "3100:3100"  # For /eco-index, /health, etc.
+    volumes:
+      - ./mock-content/:/var/www/elvira/books/:ro  # Serve mock content
+      - ./data/central:/var/www/data
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.2
+        ipv4_address: 10.50.0.2
     depends_on:
       - main-dns
       - secondary-dns
@@ -23,9 +26,11 @@ services:
     ports:
     - "8081:80"  # Existing
     - "3001:3000"
+    volumes:
+      - ./data/facultyA:/var/www/data
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.10
+        ipv4_address: 10.50.0.10
     depends_on:
       - central-nginx
     privileged: true
@@ -41,7 +46,7 @@ services:
       - ./infra/dns/main/zones:/zones:ro  # Keep if you have static zones; optional now
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.3
+        ipv4_address: 10.50.0.3
   secondary-dns:
     build:
       context: .
@@ -52,9 +57,9 @@ services:
       - ./infra/dns/secondary/Corefile:/Corefile:ro
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.4
+        ipv4_address: 10.50.0.4
       facultyA-net:
-        ipv4_address: 192.168.1.5
+        ipv4_address: 10.51.0.5
     sysctls:
       - net.ipv4.ip_forward=1
     cap_add:
@@ -67,7 +72,7 @@ services:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.5
+        ipv4_address: 10.50.0.5
   student-facultyA:
     build:
       context: .
@@ -85,9 +90,9 @@ services:
       - SIM_EXAM_SPIKE_FACTOR=3
     networks:
       facultyA-net:
-        ipv4_address: 192.168.1.50
+        ipv4_address: 10.51.0.50
     dns:
-      - 172.20.0.3 
+      - 10.50.0.3 
     depends_on:
       - main-dns
       - secondary-dns
@@ -99,7 +104,7 @@ services:
       - "9100:9100"  # Matches your prometheus.yml
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.6
+        ipv4_address: 10.50.0.6
     volumes:
       - /:/host:ro
     command:
@@ -113,7 +118,7 @@ services:
       - "9101:9100"  # Separate port to avoid conflict
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.11
+        ipv4_address: 10.50.0.11
     volumes:
       - /:/host:ro
     command:
@@ -128,7 +133,7 @@ services:
       - "9113:9113"
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.7
+        ipv4_address: 10.50.0.7
     command:  # Scrape central's stub_status (your metrics.ts uses it)
       - -nginx.scrape-uri=http://172.20.0.2/stub_status
     depends_on:
@@ -141,24 +146,29 @@ services:
       - "9114:9113"
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.12
+        ipv4_address: 10.50.0.12
     command:
       - -nginx.scrape-uri=http://172.20.0.10/stub_status
     depends_on:
       - facultyA-edge
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest 
+    image: gcr.io/cadvisor/cadvisor:latest  # Или :v0.49.1 для свежей версии
     container_name: cadvisor
     ports:
       - "8082:8080"
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.13
+        ipv4_address: 10.50.0.13
     volumes:
       - /:/rootfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro  // Already good for WSL
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
     privileged: true
+    cap_add:
+      - SYS_PTRACE  # Фикс smaps
+    command:
+      - --housekeeping_interval=15s  # Реже обновлять, меньше CPU
+      - --docker_only=true  # Только Docker
     depends_on:
       - central-nginx
       - facultyA-edge
@@ -167,9 +177,9 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: "172.20.0.0/16"
+        - subnet: "10.50.0.0/16"
   facultyA-net:
     driver: bridge
     ipam:
       config:
-        - subnet: "192.168.1.0/24"
+        - subnet: "10.51.0.0/24"
