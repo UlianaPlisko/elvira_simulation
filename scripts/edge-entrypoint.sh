@@ -3,7 +3,7 @@ set -eu
 
 LOG_DIR=/var/log/edge
 mkdir -p ${LOG_DIR}
-ip route add 192.168.1.0/24 via 172.20.0.4 || echo "Route already exists or error"
+ip route add 10.50.1.0/24 via 10.50.0.4 || echo "Route already exists or error"
 
 # start node_exporter
 if [ -x "/usr/bin/node_exporter" ]; then

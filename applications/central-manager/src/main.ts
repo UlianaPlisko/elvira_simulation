@@ -45,7 +45,7 @@ app.post('/trigger-prefetch', async (req, res) => {
 
 app.get('/eco-index', async (req, res) => {
   try {
-    const promUrl = 'http://172.20.0.5:9090/api/v1/query';
+    const promUrl = 'http://10.50.0.5:9090/api/v1/query';
     const simDurationHours = CONFIG.simulation.duration / 3600;
 
     // === E_total ===

@@ -3,7 +3,7 @@ set -eu
 
 LOG_DIR=/var/log/central
 mkdir -p ${LOG_DIR}
-ip route add 192.168.1.0/24 via 172.20.0.4 || echo "Route already exists or error"
+ip route add 10.50.1.0/24 via 10.50.0.4 || echo "Route already exists or error"
 chmod 755 ${LOG_DIR}
 
 echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') ENTRYPOINT PROD START" >> ${LOG_DIR}/entrypoint.log

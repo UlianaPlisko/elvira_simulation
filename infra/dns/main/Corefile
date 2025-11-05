@@ -2,7 +2,7 @@ elvira.lib:53 {
     ecs {
         mask_v4 24
     }
-    forward . 172.20.0.4:53 
+    forward . 10.50.0.4:53 
     log
     errors
 }
