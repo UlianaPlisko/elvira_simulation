@@ -56,16 +56,16 @@ app.get('/eco-index', async (req, res) => {
     // === U: ЧИСЛО, НЕ СТРОКА ===
     const uQuery = `
       100 * (
-        sum(container_fs_usage_bytes{container=~"central-nginx|facultyA-edge"}) 
+        sum(container_fs_usage_bytes{device=~"overlay.*"}) 
         / 
-        sum(container_fs_capacity_bytes{container=~"central-nginx|facultyA-edge"})
+        sum(container_fs_limit_bytes{device=~"overlay.*"})
       )
     `;
     const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
     const uRaw = uRes.data.data.result.length > 0 
       ? parseFloat(uRes.data.data.result[0].value[1])
       : 0;
-    const u = Number(uRaw.toFixed(2));  // ← ЧИСЛО!
+    const u = Number(uRaw.toFixed(6));
 
     // === R ===
     const rQuery = 'sum(nginx_http_requests_total)';
@@ -86,7 +86,7 @@ app.get('/eco-index', async (req, res) => {
     res.json({
       ei: ei.toFixed(6),
       eTotal: Number(eTotal.toFixed(12)),  // убираем научную нотацию
-      u: u.toFixed(2),                     // строка только для JSON
+      u: u.toFixed(6),                     // строка только для JSON
       r,
       t,
       co2e: co2e.toFixed(6)

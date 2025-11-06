@@ -8,6 +8,8 @@ services:
     - "8080:80"  # Existing
     - "3000:3000"  # For /metrics (Prometheus already scrapes internally, but useful for debug)
     - "3100:3100"  # For /eco-index, /health, etc.
+    volumes:
+      - ./data:/var/www/books:ro
     networks:
       elvira-net:
         ipv4_address: 172.20.0.2
@@ -23,6 +25,8 @@ services:
     ports:
     - "8081:80"  # Existing
     - "3001:3000"
+    volumes:
+      - ./data:/var/www/cache:ro
     networks:
       elvira-net:
         ipv4_address: 172.20.0.10
