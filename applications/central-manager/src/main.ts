@@ -6,11 +6,18 @@ import express from 'express';
 import axios from 'axios';
 import { exec } from 'child_process';
 import util from 'util';
+import cors from 'cors';
 
 const execAsync = util.promisify(exec);
 
 const app = express();
 app.use(express.json());
+
+app.use(cors({
+  origin: 'http://localhost:3101', // React app origin
+  methods: ['GET', 'POST']
+}));
+
 
 const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3100;
 

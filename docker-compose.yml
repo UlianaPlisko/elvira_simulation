@@ -166,6 +166,20 @@ services:
     depends_on:
       - central-nginx
       - facultyA-edge
+
+  dashboard:
+    build:
+      context: ./elvira-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3101:3101"  
+    command: npm start
+    depends_on:
+      - central-nginx
+      - prometheus
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.20
 networks:
   elvira-net:
     driver: bridge
