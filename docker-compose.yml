@@ -160,13 +160,13 @@ services:
         ipv4_address: 172.20.0.13
     volumes:
       - /:/rootfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro  // Already good for WSL
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro  # Добавлено для фикса WSL disk usage
     privileged: true
     depends_on:
       - central-nginx
       - facultyA-edge
-
   dashboard:
     build:
       context: ./elvira-dashboard

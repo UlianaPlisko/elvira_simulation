@@ -1,3 +1,4 @@
+// main.ts
 // applications/central-manager/src/main.ts
 import './monitoring/metrics';
 console.log('metrics imported successfully');  // ADD
@@ -17,7 +18,6 @@ app.use(cors({
   origin: 'http://localhost:3101', // React app origin
   methods: ['GET', 'POST']
 }));
-
 
 const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3100;
 
@@ -50,57 +50,84 @@ app.post('/trigger-prefetch', async (req, res) => {
   }
 });
 
-app.get('/eco-index', async (req, res) => {
+// Новый эндпоинт для метрик central-only (для EI calc в frontend)
+app.get('/central-metrics', async (req, res) => {
   try {
     const promUrl = 'http://172.20.0.5:9090/api/v1/query';
-    const simDurationHours = CONFIG.simulation.duration / 3600;
 
-    // === E_total ===
-    const eQuery = 'sum(central_energy_kwh) or vector(0) + sum(edge_energy_kwh_facultyA) or vector(0)';
+    // E_total для central (custom)
+    const eQuery = 'sum(central_energy_kwh) or vector(0)';
     const eRes = await axios.get(`${promUrl}?query=${encodeURIComponent(eQuery)}`);
     const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || '0');
 
-    // === U: ЧИСЛО, НЕ СТРОКА ===
-    const uQuery = `
-      100 * (
-        sum(container_fs_usage_bytes{device=~"overlay.*"}) 
-        / 
-        sum(container_fs_limit_bytes{device=~"overlay.*"})
-      )
-    `;
+    // U для books (из custom gauge, per-books dir via Node.js)
+    const uQuery = 'central_books_util';
     const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
     const uRaw = uRes.data.data.result.length > 0 
       ? parseFloat(uRes.data.data.result[0].value[1])
       : 0;
     const u = Number(uRaw.toFixed(6));
 
-    // === R ===
-    const rQuery = 'sum(nginx_http_requests_total)';
+    // R для central (total requests из nginx-exporter)
+    const rQuery = 'sum(nginx_http_requests_total{job="nginx-central"})';
     const rRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rQuery)}`);
     const r = parseFloat(rRes.data.data.result[0]?.value[1] || '0');
 
-    // === T ===
-    const t = simDurationHours;
+    // RPS для central (requests per second, rate over 1m)
+    const rpsQuery = 'rate(nginx_http_requests_total{job="nginx-central"}[1m])';
+    const rpsRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rpsQuery)}`);
+    const rps = parseFloat(rpsRes.data.data.result[0]?.value[1] || '0');
 
-    // === EI: u — число → всё ок ===
-    const ei = (eTotal * (1 - u / 100)) / (r * t || 1);
+    // Lambda (combined load из custom)
+    const lambdaQuery = 'central_load_lambda';
+    const lambdaRes = await axios.get(`${promUrl}?query=${encodeURIComponent(lambdaQuery)}`);
+    const lambda = parseFloat(lambdaRes.data.data.result[0]?.value[1] || '0');
 
-    // === CO2 ===
-    const carbonFactor = 0.5;
-    const co2e = ei * carbonFactor;
+    // CPU load (из custom)
+    const cpuQuery = 'central_cpu_load';
+    const cpuRes = await axios.get(`${promUrl}?query=${encodeURIComponent(cpuQuery)}`);
+    const cpuLoad = parseFloat(cpuRes.data.data.result[0]?.value[1] || '0');
 
-    // === ОТВЕТ: u — число, ei — число ===
+    // Mem load (из custom)
+    const memQuery = 'central_mem_load';
+    const memRes = await axios.get(`${promUrl}?query=${encodeURIComponent(memQuery)}`);
+    const memLoad = parseFloat(memRes.data.data.result[0]?.value[1] || '0');
+
+    // Transitions (из custom)
+    const transQuery = 'central_transitions_total';
+    const transRes = await axios.get(`${promUrl}?query=${encodeURIComponent(transQuery)}`);
+    const transitions = parseFloat(transRes.data.data.result[0]?.value[1] || '0');
+
+    // T (duration в часах, из CONFIG для симуляции)
+    const t = CONFIG.simulation.duration / 3600;
+
     res.json({
-      ei: ei.toFixed(6),
-      eTotal: Number(eTotal.toFixed(12)),  // убираем научную нотацию
-      u: u.toFixed(6),                     // строка только для JSON
+      eTotal: Number(eTotal.toFixed(12)),
+      u: u.toFixed(6),
       r,
+      rps: rps.toFixed(2),
       t,
-      co2e: co2e.toFixed(6)
+      lambda: lambda.toFixed(2),
+      cpuLoad: cpuLoad.toFixed(2),
+      memLoad: memLoad.toFixed(2),
+      transitions
     });
   } catch (e: any) {
-    console.error('EI calc error:', e.message || e);
-    res.status(500).json({ error: 'Failed to compute EI' });
+    console.error('Central metrics error:', e.message || e);
+    res.status(500).json({ error: 'Failed to fetch central metrics' });
+  }
+});
+
+// Proxy для Prometheus (оставлен для других queries, если нужно)
+app.get('/prom-query', async (req, res) => {
+  try {
+    const query = req.query.query as string;
+    if (!query) return res.status(400).json({ error: 'No query' });
+    const promRes = await axios.get(`http://172.20.0.5:9090/api/v1/query?query=${encodeURIComponent(query)}`);
+    res.json(promRes.data);
+  } catch (e) {
+    console.error('Prom proxy error:', e);
+    res.status(500).json({ error: 'Prom query failed' });
   }
 });
 
@@ -108,14 +135,10 @@ const server = app.listen(CONTROL_PORT, () => {
   console.log(`Central control API listening on ${CONTROL_PORT}`);
 });
 
-// --- Decision loop ---
+// --- Decision loop --- (оставлен, но можно закомментировать если не нужен для теста)
 async function predictLoad(): Promise<number> {
-  // Заглушка: здесь подключите TensorFlow.js / модели
-  // Нынче: простой прогноз (случай) или возьмём текущую метрику через /metrics или логи
-  // Например: запросим собственный endpoint /metrics и дернём last value или используем history
   try {
-    // Пример: можно парсить ваш own metrics (при желании)
-    return Math.random(); // заглушка: random 0..1
+    return Math.random(); // заглушка
   } catch (e) {
     console.warn('predictLoad fallback', e);
     return 0;
@@ -124,28 +147,16 @@ async function predictLoad(): Promise<number> {
 
 async function performPrefetch(opts?: Record<string, unknown>) {
   console.log('Performing prefetch with opts=', opts || {});
-  // Заглушка: тут может быть rsync / scp / API вызов до edge.
-  // Пример вызова rsync через docker host (если у вас настроен ssh/volume):
-  // await execAsync(`rsync -avz /path/popular_files/ facultyA:/var/www/cache/`);
-  // В локальном симе чаще: просто пометить состояние и логировать.
   state.prefetchActive = true;
-  // Симулируем время префетча
   await new Promise((r) => setTimeout(r, 2000));
   state.prefetchActive = false;
   console.log('Prefetch done');
 }
 
-// Функция обновления CoreDNS (если вы меняете Corefile): write file & reload CoreDNS
 async function updateCoreDNSRules(rules: Record<string, string>) {
   console.log('updateCoreDNSRules called', rules);
-  // В контейнерной среде проще: центральный менеджер может запустить sed/echo на монтируемом Corefile
-  // или вызвать внешний endpoint, который перезаписывает Corefile и отправляет SIGHUP в CoreDNS.
-  // Здесь мы логируем — реализуйте реальное обновление в прод/симе.
-  // Пример (псевдо):
-  // await execAsync(`bash -c "echo '...new corefile...' > /path/to/Corefile && docker kill -s HUP secondary-dns"`);
 }
 
-// Основной цикл принятия решений
 async function decisionLoop() {
   try {
     console.log('Decision loop tick at', new Date().toISOString());
@@ -155,11 +166,9 @@ async function decisionLoop() {
 
     console.log(`Predicted lambda=${predicted.toFixed(3)}`);
 
-    // Простая логика: если предсказание выше порога, запускаем prefetch
     if (predicted > CONFIG.load.threshold) {
       console.log('Predicted high load > threshold -> trigger prefetch and consider routing update');
       await performPrefetch({ predicted });
-      // Можно обновить CoreDNS/zone чтобы направлять заранее трафик на разогретые edge:
       await updateCoreDNSRules({ action: 'route-to-edges' });
     } else {
       console.log('Predicted load normal (no action)');
@@ -169,10 +178,8 @@ async function decisionLoop() {
   }
 }
 
-// Запускаем цикл каждые deltaSeconds
 setInterval(decisionLoop, CONFIG.load.deltaSeconds * 1000);
 
-// Обработка graceful shutdown
 process.on('SIGINT', async () => {
   console.info('SIGINT received - shutting down');
   server.close(() => {
@@ -186,5 +193,4 @@ process.on('SIGTERM', async () => {
   });
 });
 
-// Чтобы контейнер не завершался: main.ts постоянно живёт (интервалы + express server)
 console.log('Central manager main started. Decision loop deltaSeconds=', CONFIG.load.deltaSeconds);

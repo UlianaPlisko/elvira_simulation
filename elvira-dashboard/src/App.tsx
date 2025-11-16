@@ -19,8 +19,8 @@ function App() {
             <TopologyDiagram />
           </Grid>
 
-          <Grid size={{ xs: 12, md: 6 }}>
-            <EcoIndexCard />
+          <Grid size={{ xs: 12 }}>
+            <EcoIndexCard />  {/* Now shows per-server + total */}
           </Grid>
 
           <Grid size={{ xs: 12 }}>
