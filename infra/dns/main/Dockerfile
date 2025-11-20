@@ -7,6 +7,11 @@ WORKDIR /go/src/github.com/coredns/coredns
 RUN git fetch origin pull/7047/head:pr7047
 RUN git checkout pr7047
 
+RUN sed -i '/^import (/,$ { /"github.com\/coredns\/coredns\/plugin\/metadata"/d; /"strconv"/d; }' plugin/ecs/ecs.go || true
+COPY scripts/ecs.go /tmp/ecs.go
+RUN rm plugin/ecs/ecs.go
+RUN mv /tmp/ecs.go plugin/ecs/ecs.go
+
 RUN sed -i '/^kubernetes:/d' plugin.cfg
 
 RUN go mod download

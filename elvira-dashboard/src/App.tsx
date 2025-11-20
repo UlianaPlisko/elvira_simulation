@@ -1,10 +1,11 @@
 // src/App.tsx
 import { Container, Grid, Typography, AppBar, Toolbar } from '@mui/material';
 import TopologyDiagram from './components/TopologyDiagram';
+import ControlsPanel from './components/ControlsPanel';
 import EcoIndexCard from './components/EcoIndexCard';
-import GrafanaIframe from './components/GrafanaIframe';
+import NodeMatrix from './components/NodeMatrix';
 
-function App() {
+export default function App() {
   return (
     <>
       <AppBar position="static">
@@ -14,23 +15,32 @@ function App() {
       </AppBar>
 
       <Container sx={{ mt: 4 }}>
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12 }}>
+        {/* Topology row: left big area, right small controls */}
+        <Grid container spacing={3} alignItems="flex-start">
+          
+          <Grid size={{ xs: 12, md: 9 }}>
             <TopologyDiagram />
           </Grid>
 
-          <Grid size={{ xs: 12 }}>
-            <EcoIndexCard />  {/* Now shows per-server + total */}
+          <Grid size={{ xs: 12, md: 3 }}>
+            <ControlsPanel />
           </Grid>
 
-          <Grid size={{ xs: 12 }}>
-            <Typography variant="h6">Живые графики (Grafana)</Typography>
-            <GrafanaIframe />
+        </Grid>
+
+        {/* Stats row: left EI (big), right node matrix (same width) */}
+        <Grid container spacing={3} sx={{ mt: 1 }}>
+          
+          <Grid size={{ xs: 12, md: 6 }}>
+            <EcoIndexCard />
           </Grid>
+
+          <Grid size={{ xs: 12, md: 6 }}>
+            <NodeMatrix />
+          </Grid>
+
         </Grid>
       </Container>
     </>
   );
 }
-
-export default App;

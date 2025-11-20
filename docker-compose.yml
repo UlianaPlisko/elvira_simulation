@@ -30,6 +30,8 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.10
+      facultyA-net:
+        ipv4_address: 192.168.1.10
     depends_on:
       - central-nginx
     privileged: true
@@ -42,7 +44,6 @@ services:
       - "53:53/udp"
     volumes:
       - ./infra/dns/main/Corefile:/Corefile:ro
-      - ./infra/dns/main/zones:/zones:ro  # Keep if you have static zones; optional now
     networks:
       elvira-net:
         ipv4_address: 172.20.0.3
