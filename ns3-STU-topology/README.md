@@ -20,7 +20,7 @@
 
 ## What this project does
 
-This simulator reads two CSV files (`nodes.csv`, `links.csv`) describing real servers (rectorate, faculties, etc.) found by this link: https://www.stuba.sk/new/docs/stu/pracoviska/cvt/Topologia-siete-STU.htm and their links, then:
+This simulator reads two CSV files (`nodes.csv`, `links.csv`) describing real servers (rectorate, faculties, etc.) and their links  found by this link: https://www.stuba.sk/new/docs/stu/pracoviska/cvt/Topologia-siete-STU.htm, then:
 
 - Converts real-world addresses → `lat/lon` → approximate meters using a simple projection.
 - Constructs an NS-3 topology with point-to-point links and assigns per-link subnets.
