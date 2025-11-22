@@ -1,0 +1,23 @@
+id;name;role;address;lat;lon;notes
+1;CVT_STU;central;Nám. slobody 17, Bratislava;48.1486;17.116;Central server + main SANET node
+2;FEI_STU;router;Ilkovičova 3, Bratislava;48.1528;17.072;FEI hub (10G to CVT)
+3;MTF_TRNAVA;router;Paulínska 16, Trnava;48.3792;17.587;MTF Trnava hub (10G to CVT)
+4;AREAL_VAZOVOVA;hop;Vazovova 5, Bratislava;48.152;17.1205;Areál STU Vazovova-Mýtna (intermediate)
+5;FA_STU;edge;Nám. slobody 19, Bratislava;48.1488;17.1165;Fakulta architektúry
+6;FCHPT;edge;Radlinského 9, Bratislava;48.1515;17.115;Fakulta chemická
+7;SjF;edge;Nám. slobody 17, Bratislava;48.1486;17.116;Strojnícka fakulta (same building)
+8;SvF;edge;Radlinského 11, Bratislava;48.1518;17.1145;Stavebná fakulta
+9;AREAL_PIONIERSKA;hop;Pionierska 15, Bratislava;48.1605;17.088;Areál Pionierska (intermediate)
+10;TRNAVKA_TECHNICKA;hop;Technická 5, Bratislava;48.163;17.153;Areál Trnavka-Technická (2 Mbps! intermediate)
+11;DORM_MLADA_GARDA;hop;Račianska 103, Bratislava;48.1795;17.135;ŠD Mladá garda (dorm intermediate)
+12;DORM_NIKOS_BELOJANIS;hop;Wilsonovas 6, Bratislava;48.144;17.1225;ŠD Nikosa Belojanisa (dorm intermediate)
+13;DORM_JURAJ_HRONEC;hop;Bernolákova 1, Bratislava;48.1475;17.13;ŠD Juraja Hronca (dorm intermediate)
+14;DORM_SVORADOV;hop;Svoradova 13, Bratislava;48.146;17.1085;ŠD Svoradov (dorm intermediate)
+15;DORM_DOBROVICOVA;hop;Dobrovičova 14, Bratislava;48.1445;17.109;ŠD Dobrovičova (dorm intermediate)
+16;DORM_MLADOST;hop;Staré grunty 53, Bratislava;48.155;17.065;ŠD Mladosť (near FEI, intermediate)
+17;FITT;edge;Ilkovičova 3, Bratislava;48.1528;17.072;FITT (same as FEI)
+18;MTF_PAULINSKA;edge;Paulínska 16, Trnava;48.3792;17.587;Main MTF building (agg links)
+19;MTF_BOTTU;hop;J. Bottu 23-24, Trnava;48.376;17.5905;MTF J. Bottu (intermediate)
+20;MTF_RAZUSOVA;hop;Rázusova 2, Trnava;48.3785;17.585;MTF Rázusova (intermediate)
+21;MTF_HAJDOCZYHO;hop;Hajdóczyho 1, Trnava;48.374;17.592;MTF Hajdóczyho (intermediate)
+22;MTF_BOTANICKA;hop;Botanická 49, Trnava;48.3705;17.595;MTF Botanická (intermediate)

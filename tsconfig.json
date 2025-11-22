@@ -22,6 +22,5 @@
   },
   "include": [
     "applications/central-manager/src/**/*.ts",
-    "applications/edge-managers/facultyA/src/**/*.ts"
-  ],
+    "applications/edge-managers/facultyA/src/**/*.ts"],
 }

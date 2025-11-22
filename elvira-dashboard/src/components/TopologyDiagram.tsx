@@ -1,5 +1,5 @@
 // src/components/TopologyDiagram.tsx
-import { Box, Typography, Paper } from '@mui/material';
+import { Box, Typography, Paper, Tooltip } from '@mui/material';
 
 type Node = { id: string; label: string; ip?: string; color?: string };
 
@@ -12,13 +12,12 @@ const edges: Node[] = [
 ];
 
 export default function TopologyDiagram() {
-  // positions for five points around center (percent x,y)
   const positions = [
-    { left: '50%', top: '6%' },   // top
-    { left: '85%', top: '35%' },  // right-top
-    { left: '70%', top: '78%' },  // right-bottom
-    { left: '30%', top: '78%' },  // left-bottom
-    { left: '15%', top: '35%' },  // left-top
+    { left: '50%', top: '6%' },
+    { left: '85%', top: '35%' },
+    { left: '70%', top: '78%' },
+    { left: '30%', top: '78%' },
+    { left: '15%', top: '35%' },
   ];
 
   return (
@@ -26,51 +25,55 @@ export default function TopologyDiagram() {
       <Typography variant="h6" gutterBottom>Топология (Central + Edge nodes)</Typography>
 
       <Box sx={{ position: 'relative', width: '100%', height: { xs: 320, md: 360 }, bgcolor: '#fafafa', borderRadius: 2 }}>
-        {/* central node */}
         <Box
           sx={{
             position: 'absolute',
             left: '50%',
             top: '50%',
             transform: 'translate(-50%, -50%)',
-            width: 110,
-            height: 110,
+            width: { xs: 90, md: 110 },
+            height: { xs: 90, md: 110 },
             borderRadius: '50%',
             bgcolor: '#f44336',
             color: 'white',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontWeight: '700',
+            fontWeight: 700,
             boxShadow: 3,
             textAlign: 'center',
+            px: 1
           }}
         >
           Central<br />NGINX
         </Box>
 
-        {/* edges */}
         {edges.map((n, i) => (
           <Box key={n.id} sx={{ position: 'absolute', ...positions[i], transform: 'translate(-50%, -50%)' }}>
-            {/* connector line: using an absolute pseudo-line is tricky, instead show small arrow-ish dot */}
-            <Box
-              sx={{
-                width: 80,
-                height: 80,
-                borderRadius: '50%',
-                bgcolor: n.color,
-                color: 'white',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: '600',
-                boxShadow: 2,
-                fontSize: '0.9rem',
-                textAlign: 'center',
-              }}
-            >
-              {n.label}
-            </Box>
+            <Tooltip title={`${n.label} — ${n.ip}`} arrow>
+              <Box
+                sx={{
+                  width: { xs: 64, md: 80 },
+                  height: { xs: 64, md: 80 },
+                  borderRadius: '50%',
+                  bgcolor: n.color,
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 600,
+                  boxShadow: 2,
+                  fontSize: { xs: '0.7rem', md: '0.9rem' },
+                  textAlign: 'center',
+                  px: 1,
+                  cursor: 'pointer',
+                  transition: 'transform 150ms ease',
+                  '&:hover': { transform: 'translateY(-6px)' }
+                }}
+              >
+                {n.label}
+              </Box>
+            </Tooltip>
             <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>{n.ip}</Typography>
           </Box>
         ))}

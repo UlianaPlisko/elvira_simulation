@@ -19,7 +19,7 @@ scrape_configs:
       - targets: ['central-nginx:3000']  # Ваши custom метрики (энергия)
   - job_name: 'facultyA-custom'
     static_configs:
-      - targets: ['facultyA-edge:3000']  # Custom для edge
+      - targets: ['facultyA-edge:3002']  # Custom для edge
   - job_name: 'dns'
     static_configs:
       - targets: ['main-dns:9153', 'secondary-dns:9153']

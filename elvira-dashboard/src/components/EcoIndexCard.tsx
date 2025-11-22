@@ -1,87 +1,85 @@
 // src/components/EcoIndexCard.tsx
-import { Card, CardContent, Typography, LinearProgress, Grid } from '@mui/material';
+import { Card, CardContent, Typography, LinearProgress, Box, Chip } from '@mui/material';
 import { useEffect, useState } from 'react';
-import { getCentralMetrics, getFacultyAMetrics} from '../services/api';
+import { getCentralMetrics, getFacultyAMetrics } from '../services/api';
 
 export default function EcoIndexCard() {
-  const [centralData, setCentralData] = useState<any>(null);
-  const [facultyAData, setFacultyAData] = useState<any>(null);
   const [totalEI, setTotalEI] = useState<number>(0);
   const [totalCO2, setTotalCO2] = useState<number>(0);
+  const [summary, setSummary] = useState({
+    totalEnergy: 0,
+    avgU: 0,
+    totalR: 0,
+    t: 0
+  });
 
   useEffect(() => {
-    const fetchData = async () => {
+    let mounted = true;
+
+    const fetchAndCompute = async () => {
       try {
-        // Fetch per-server metrics
-        const centralRes = await getCentralMetrics();
-        setCentralData(centralRes.data);
+        const [centralRes, facultyRes] = await Promise.all([
+          getCentralMetrics(),
+          getFacultyAMetrics()
+        ]);
 
-        const facultyARes = await getFacultyAMetrics();
-        setFacultyAData(facultyARes.data);
+        const central = centralRes.data ?? {};
+        const faculty = facultyRes.data ?? {};
 
-        // Calculate total EI if both servers data available (U now books % per-server, total avg U)
-        if (centralRes.data && facultyARes.data) {
-          const totalE = centralRes.data.eTotal + facultyARes.data.eTotal;
-          const totalR = centralRes.data.r + facultyARes.data.r;
-          const totalU = (parseFloat(centralRes.data.u) + parseFloat(facultyARes.data.u)) / 2;  // Avg books U
-          const t = centralRes.data.t;  // Assume same T
-          const ei = (totalE * (1 - totalU / 100)) / (totalR * t || 1);
-          setTotalEI(ei);
-          const carbonFactor = 0.5;  // kg CO2e/kWh from article
-          setTotalCO2(ei * carbonFactor);
-        }
-      } catch (e) {
-        console.error('Error fetching eco data:', e);
+        const totalE = (central.eTotal || 0) + (faculty.eTotal || 0);
+        const totalR = (central.r || 0) + (faculty.r || 0);
+        const uCentral = parseFloat(central.u || '0');
+        const uFaculty = parseFloat(faculty.u || '0');
+        const avgU = ( (isNaN(uCentral) ? 0 : uCentral) + (isNaN(uFaculty) ? 0 : uFaculty) ) / 2;
+
+        const t = central.t || faculty.t || 0;
+        const denom = (totalR * t) || 1;
+        const ei = (totalE * (1 - avgU / 100)) / denom;
+        const carbonFactor = 0.5;
+        const co2 = ei * carbonFactor;
+
+        if (!mounted) return;
+
+        setTotalEI(ei);
+        setTotalCO2(co2);
+        setSummary({ totalEnergy: totalE, avgU, totalR, t });
+      } catch (err) {
+        console.error('EcoIndex fetch error:', err);
       }
     };
 
-    fetchData();
-    const id = setInterval(fetchData, 5000);
-    return () => clearInterval(id);
+    fetchAndCompute();
+    const id = setInterval(fetchAndCompute, 5000);
+    return () => { mounted = false; clearInterval(id); };
   }, []);
 
-  const renderServerCard = (serverName: string, serverData: any) => (
-    <Card sx={{ mb: 2 }}>
+  return (
+    <Card sx={{ boxShadow: 3, borderRadius: 2 }}>
       <CardContent>
-        <Typography variant="h6">{serverName} Metrics</Typography>
-        <Typography variant="body2">
-          Energy: {serverData?.eTotal.toFixed(6)} kWh<br />
-          U (Books Disk %): {serverData?.u}%<br />
-          Requests (R): {serverData?.r}<br />
-          RPS: {serverData?.rps}<br />
-          Lambda: {serverData?.lambda}<br />
-          CPU Load: {serverData?.cpuLoad}<br />
-          Mem Load: {serverData?.memLoad}<br />
-          Transitions: {serverData?.transitions}<br />
-          T: {serverData?.t}h
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h6">Total Eco Index</Typography>
+            <Typography variant="caption" color="text.secondary">Combined metric for central + edge</Typography>
+          </Box>
+          <Chip label="Live" color="success" size="small" />
+        </Box>
+
+        <Typography variant="h3" color="primary" sx={{ mt: 1 }}>
+          {Number(totalEI).toFixed(6)}
         </Typography>
-        <LinearProgress variant="determinate" value={parseFloat(serverData?.u)} sx={{ mt: 2 }} />
+
+        <Typography variant="body2" sx={{ mt: 1 }}>
+          Total Energy: <strong>{Number(summary.totalEnergy).toFixed(6)} kWh</strong><br />
+          Total CO₂: <strong>{Number(totalCO2).toFixed(6)} kg</strong><br />
+          Avg U (Books %): <strong>{Number(summary.avgU).toFixed(3)}%</strong> | Total R: <strong>{summary.totalR}</strong> | T: <strong>{summary.t}</strong>h
+        </Typography>
+
+        <LinearProgress
+          variant="determinate"
+          value={Math.max(0, Math.min(100, Number(summary.avgU)))}
+          sx={{ mt: 2, height: 10, borderRadius: 2 }}
+        />
       </CardContent>
     </Card>
-  );
-
-  return (
-    <Grid container spacing={2}>
-      <Grid size={{ xs: 12, md: 4 }}>
-        {centralData ? renderServerCard('Central NGINX', centralData) : <Card><CardContent>Загрузка Central...</CardContent></Card>}
-      </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
-        {facultyAData ? renderServerCard('Faculty A Edge', facultyAData) : <Card><CardContent>Загрузка Faculty A...</CardContent></Card>}
-      </Grid>
-      <Grid size={{ xs: 12, md: 4 }}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6">Total Eco Index</Typography>
-            <Typography variant="h3" color="primary">{totalEI.toFixed(6)}</Typography>
-            <Typography variant="body2">
-              Total Energy: {(centralData?.eTotal + (facultyAData?.eTotal || 0)).toFixed(6)} kWh<br />
-              Total CO₂: {totalCO2.toFixed(6)} kg<br />
-              Avg U (Books %): {((parseFloat(centralData?.u) + parseFloat(facultyAData?.u || 0)) / 2).toFixed(6)}% | Total R: {(centralData?.r + (facultyAData?.r || 0))} | T: {centralData?.t || 0}h
-            </Typography>
-            <LinearProgress variant="determinate" value={(parseFloat(centralData?.u) + parseFloat(facultyAData?.u || 0)) / 2} sx={{ mt: 2 }} />
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
   );
 }

@@ -12,7 +12,7 @@ COPY applications/edge-managers/facultyA/tsconfig.json /app/tsconfig.json
 COPY applications/edge-managers/facultyA/src/ /app/src/
 
 # install deps (use npm ci because we copied lockfile)
-RUN npm ci --no-audit --no-fund
+RUN npm i --save-dev @types/cors
 
 # build TS
 RUN npm run build

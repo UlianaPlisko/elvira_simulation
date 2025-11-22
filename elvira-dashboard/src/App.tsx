@@ -1,4 +1,5 @@
 // src/App.tsx
+import './styles.css';
 import { Container, Grid, Typography, AppBar, Toolbar } from '@mui/material';
 import TopologyDiagram from './components/TopologyDiagram';
 import ControlsPanel from './components/ControlsPanel';

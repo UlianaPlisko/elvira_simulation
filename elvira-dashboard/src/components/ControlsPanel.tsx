@@ -1,16 +1,16 @@
 // src/components/ControlsPanel.tsx
 import { useState } from 'react';
-import { Box, Paper, Typography, Stack, Button, Divider, Chip } from '@mui/material';
+import { Box, Paper, Typography, Stack, Button, Divider, Chip, Tooltip } from '@mui/material';
 
 export default function ControlsPanel() {
   const [status, setStatus] = useState({ s1: 'idle', s2: 'idle', s3: 'idle' });
 
   const start = (k: number) => {
-    console.log('Start simulation', k);
     setStatus(prev => ({ ...prev, [`s${k}`]: 'running' }));
-    // placeholder: simulate quick completion
     setTimeout(() => setStatus(prev => ({ ...prev, [`s${k}`]: 'idle' })), 2500);
   };
+
+  const lorem = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent ut.';
 
   return (
     <Paper sx={{ p: 2 }}>
@@ -21,7 +21,11 @@ export default function ControlsPanel() {
 
       <Stack spacing={2}>
         <Box>
-          <Button variant="contained" fullWidth onClick={() => start(1)}>Start simulation 1</Button>
+          <Tooltip title={lorem} arrow>
+            <span>
+              <Button variant="contained" fullWidth onClick={() => start(1)}>Start simulation 1</Button>
+            </span>
+          </Tooltip>
           <Box sx={{ mt: 0.5, display: 'flex', gap: 1, alignItems: 'center' }}>
             <Chip label={status.s1} size="small" color={status.s1 === 'running' ? 'primary' : 'default'} />
             <Typography variant="caption">Sim 1 — baseline run</Typography>
@@ -29,7 +33,11 @@ export default function ControlsPanel() {
         </Box>
 
         <Box>
-          <Button variant="contained" fullWidth onClick={() => start(2)}>Start simulation 2</Button>
+          <Tooltip title={lorem} arrow>
+            <span>
+              <Button variant="contained" fullWidth onClick={() => start(2)}>Start simulation 2</Button>
+            </span>
+          </Tooltip>
           <Box sx={{ mt: 0.5, display: 'flex', gap: 1, alignItems: 'center' }}>
             <Chip label={status.s2} size="small" color={status.s2 === 'running' ? 'primary' : 'default'} />
             <Typography variant="caption">Sim 2 — energy-aware</Typography>
@@ -37,7 +45,11 @@ export default function ControlsPanel() {
         </Box>
 
         <Box>
-          <Button variant="contained" fullWidth onClick={() => start(3)}>Start simulation 3</Button>
+          <Tooltip title={lorem} arrow>
+            <span>
+              <Button variant="contained" fullWidth onClick={() => start(3)}>Start simulation 3</Button>
+            </span>
+          </Tooltip>
           <Box sx={{ mt: 0.5, display: 'flex', gap: 1, alignItems: 'center' }}>
             <Chip label={status.s3} size="small" color={status.s3 === 'running' ? 'primary' : 'default'} />
             <Typography variant="caption">Sim 3 — failover test</Typography>

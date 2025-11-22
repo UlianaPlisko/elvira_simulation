@@ -1,0 +1,24 @@
+id;src;dst;capacity;delay_ms;hops;notes
+L1;CVT_STU;FEI_STU;10Gbps;0.8;1;Root to west branch router
+L2;CVT_STU;MTF_TRNAVA;10Gbps;8.0;1;Root to Trnava branch router
+L3;CVT_STU;AREAL_VAZOVOVA;1Gbps;0.3;1;Hop to SjF branch
+L4;AREAL_VAZOVOVA;SjF;1Gbps;0.1;1;Hop to edge
+L5;CVT_STU;FA_STU;1Gbps;0.2;1;Direct to edge
+L6;CVT_STU;FCHPT;1Gbps;0.4;1;Direct to edge
+L7;CVT_STU;DORM_JURAJ_HRONEC;1Gbps;1.0;1;Hop to SvF branch
+L8;DORM_JURAJ_HRONEC;SvF;1Gbps;0.4;1;Hop to edge
+L9;CVT_STU;VYDAVATESTVO;100Mbps;0.1;1;Hop near central
+L10;CVT_STU;AREAL_PIONIERSKA;100Mbps;01.Ëþò;1;Hop to west
+L11;CVT_STU;TRNAVKA_TECHNICKA;2Mbps;2.0;1;Direct hop (bottleneck)
+L12;CVT_STU;DORM_MLADA_GARDA;1Gbps;2.0;1;Hop to north
+L13;CVT_STU;DORM_NIKOS_BELOJANIS;1Gbps;0.8;1;Hop near center
+L14;CVT_STU;DORM_SVORADOV;100Mbps;0.6;1;Hop south
+L15;CVT_STU;DORM_DOBROVICOVA;100Mbps;0.7;1;Hop south
+L16;FEI_STU;DORM_MLADOST;1Gbps;0.6;1;From router to hop
+L17;DORM_MLADOST;FEI_BUILDING;5Gbps;0.1;1;Hop to edge
+L18;FEI_BUILDING;FITT;5Gbps;0.1;1;Edge to edge (same campus)
+L19;MTF_TRNAVA;MTF_BOTTU;1Gbps;0.4;1;From router to hop
+L20;MTF_BOTTU;MTF_PAULINSKA;5Gbps;0.1;1;Hop to edge
+L21;MTF_TRNAVA;MTF_RAZUSOVA;100Mbps;0.5;1;Direct hop from router
+L22;MTF_TRNAVA;MTF_HAJDOCZYHO;1Gbps;0.6;1;Direct hop from router
+L23;MTF_TRNAVA;MTF_BOTANICKA;100Mbps;0.8;1;Direct hop from router

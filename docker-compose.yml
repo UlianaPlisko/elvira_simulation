@@ -24,7 +24,7 @@ services:
     image: elvira-simulation-facultya-edge
     ports:
     - "8081:80"  # Existing
-    - "3001:3000"
+    - "3001:3001"
     volumes:
       - ./data:/var/www/cache:ro
     networks:
