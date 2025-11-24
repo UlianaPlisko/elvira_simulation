@@ -1,4 +1,4 @@
-// metrics.ts
+// monitoring/metrics.ts
 import CONFIG from '../config';
 import promClient from 'prom-client';
 import axios from 'axios';
@@ -11,6 +11,7 @@ const promUrl = 'http://172.20.0.5:9090';
 
 // Инициализация реестра Prometheus для custom метрик
 const register = new promClient.Registry();
+
 const loadGauge = new promClient.Gauge({
   name: 'central_load_lambda',
   help: 'Combined load (Nginx + CPU + Memory) for central server'
@@ -43,7 +44,7 @@ const booksUsedMbGauge = new promClient.Gauge({
   name: 'central_books_used_mb', // MB
   help: 'Real used space for /var/www/books (megabytes) on central'
 });
-const booksUsedGauge = new promClient.Gauge({  // NEW: Real used bytes for books
+const booksUsedGauge = new promClient.Gauge({
   name: 'central_books_used_bytes',
   help: 'Real disk used by /var/www/books dir (bytes)'
 });
@@ -59,6 +60,7 @@ register.registerMetric(booksUtilGauge);
 register.registerMetric(booksUsedGauge);
 register.registerMetric(booksUsedMbGauge);
 
+// internal state for transition detection
 let previousLambda = 0;
 
 // Функция для получения CPU load из os
@@ -78,7 +80,6 @@ function getCpuLoad(): number {
   if (total === 0) return 0;
   return 1 - idle / total;
 }
-
 
 async function getDirectorySizeBytes(rootDir: string): Promise<number> {
   let total = 0;
@@ -123,6 +124,42 @@ async function getPromValue(query: string): Promise<number> {
   }
 }
 
+// --- EXPORT: reset function to zero custom metrics ---
+export async function resetMetrics() {
+  try {
+    // Reset all registered metric values in this registry
+    // prom-client: register.resetMetrics() clears metrics' internal values
+    // (works per-registry).
+    // @ts-ignore - some prom-client typings may not include resetMetrics on Registry instance
+    if (typeof register.resetMetrics === 'function') {
+      // @ts-ignore
+      register.resetMetrics();
+    }
+
+    // Double-safety: explicitly set gauges/counters to 0
+    loadGauge.set(0);
+    cpuLoadGauge.set(0);
+    memLoadGauge.set(0);
+    nginxLoadGauge.set(0);
+    booksUtilGauge.set(0);
+    booksUsedGauge.set(0);
+    booksUsedMbGauge.set(0);
+
+    // Counters in prom-client cannot be decremented; resetMetrics above
+    // will reset their internal state in this registry; if your prom-client
+    // version doesn't support it, counters will remain but we can't set them to 0.
+    // energyCounter is left to register.resetMetrics() behaviour.
+
+    // Reset internal state used for transition detection
+    previousLambda = 0;
+
+    console.log('Central: custom metrics reset to zero');
+  } catch (err) {
+    console.error('Central: error while resetting metrics', err);
+    throw err;
+  }
+}
+
 export async function updateMetrics() {
   try {
     // Nginx load from prometheus
@@ -132,26 +169,27 @@ export async function updateMetrics() {
     nginxLoadGauge.set(nginxLambda);
 
     // CPU load: Fallback to os (since cAdvisor per-container empty on WSL)
-    let cpuLoad = getCpuLoad();
+    const cpuLoad = getCpuLoad();
     cpuLoadGauge.set(cpuLoad);
 
     // Memory load: Fallback to os
-    let memLoad = 1 - os.freemem() / os.totalmem();
+    const memLoad = 1 - os.freemem() / os.totalmem();
     memLoadGauge.set(memLoad);
 
-    const cachePath = '/var/www/elvira/books'; 
+    const cachePath = '/var/www/elvira/books';
     try {
       const cacheBytes = await getDirectorySizeBytes(cachePath);
       // If you want percent util, define a capacity for cache (e.g. 500MB from proxy_cache max_size)
-      const maxCacheBytes = 500 * 1024 * 1024; // example: 500MB as set in nginx proxy_cache_path max_size
+      const maxCacheBytes = 500 * 1024 * 1024; // example: 500MB
       const cacheUtil = maxCacheBytes > 0 ? (cacheBytes / maxCacheBytes) * 100 : 0;
 
-      booksUsedGauge.set(cacheBytes);           // bytes
+      booksUsedGauge.set(cacheBytes); // bytes
       const mbUsed = cacheBytes / (1024 * 1024);
       booksUsedMbGauge.set(mbUsed);
-      booksUtilGauge.set(cacheUtil);           // percent
+      booksUtilGauge.set(cacheUtil); // percent
     } catch (e) {
       booksUsedGauge.set(0);
+      booksUsedMbGauge.set(0);
       booksUtilGauge.set(0);
     }
 
@@ -162,7 +200,7 @@ export async function updateMetrics() {
     // Power model
     const power = CONFIG.energy.Pidle + (CONFIG.energy.Ppeak - CONFIG.energy.Pidle) * combinedLambda;
 
-    // Energy delta
+    // Energy delta (kWh)
     const energyDelta = power * CONFIG.load.deltaSeconds / 3600000;
     energyCounter.inc(energyDelta);
 
@@ -174,8 +212,6 @@ export async function updateMetrics() {
       console.log(`Transition detected (lambda ${previousLambda.toFixed(2)} -> ${combinedLambda.toFixed(2)} > ${CONFIG.load.threshold}) - added alpha ${alphaKwh.toFixed(4)} kWh`);
     }
     previousLambda = combinedLambda;
-
-    //console.log(`Central: Nginx Lambda=${nginxLambda.toFixed(2)}, CPU Load=${cpuLoad.toFixed(2)}, Mem Load=${memLoad.toFixed(2)}, Books Util=${booksUtil.toFixed(2)}%, Books Used=${booksUsed / 1e6}MB, Combined Lambda=${combinedLambda.toFixed(2)}, Power=${power.toFixed(2)}W, Energy Delta=${energyDelta.toFixed(6)}kWh`);
   } catch (e) {
     console.error('Metrics update error in central:', e);
   }
@@ -186,8 +222,12 @@ setInterval(updateMetrics, CONFIG.load.deltaSeconds * 1000);
 
 // HTTP-сервер для экспорта custom метрик в Prometheus (порт 3000)
 const app = express();
-app.get('/metrics', async (req, res) => {
-  res.set('Content-Type', register.contentType);
-  res.end(await register.metrics());
+app.get('/metrics', async (_req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (e) {
+    res.status(500).send('failed to collect metrics');
+  }
 });
 app.listen(3000, () => console.log('Central custom metrics server running on port 3000'));

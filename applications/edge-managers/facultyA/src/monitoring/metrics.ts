@@ -104,6 +104,29 @@ async function getDirectorySizeBytes(rootDir: string): Promise<number> {
 
 let previousLambda = 0;
 
+export async function resetMetrics() {
+  try {
+    // Reset prom-client registry metrics
+    register.resetMetrics();
+
+    // Explicitly set gauges to 0
+    loadGauge.set(0);
+    cpuLoadGauge.set(0);
+    memLoadGauge.set(0);
+    nginxLoadGauge.set(0);
+    booksUtilGauge.set(0);
+    booksUsedGauge.set(0);
+    booksUsedMbGauge.set(0);
+
+    previousLambda = 0;
+
+    console.log('FacultyA: custom metrics reset to zero');
+  } catch (err) {
+    console.error('FacultyA: error while resetting metrics', err);
+    throw err;
+  }
+}
+
 export async function updateMetrics() {
   try {
     // nginx active connections — ожидается, что Prometheus собирает nginx exporter с лейблом job="nginx-facultyA"

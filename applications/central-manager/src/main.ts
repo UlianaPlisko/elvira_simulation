@@ -8,6 +8,7 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import util from 'util';
 import cors from 'cors';
+import { resetMetrics } from './monitoring/metrics';
 
 const execAsync = util.promisify(exec);
 
@@ -36,6 +37,18 @@ app.get('/health', (_req, res) => {
 // Статус/диагностика
 app.get('/status', (_req, res) => {
   res.json(state);
+});
+
+app.post('/reset-metrics', async (req, res) => {
+  try {
+    // Reset local central custom metrics
+    await resetMetrics();
+
+    res.json({ result: 'ok', msg: 'central metrics reset' });
+  } catch (e: any) {
+    console.error('central reset-metrics error:', e?.message || e);
+    res.status(500).json({ error: 'Failed to reset central metrics' });
+  }
 });
 
 // Принудительный триггер prefetch (ручная отладка)

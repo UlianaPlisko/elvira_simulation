@@ -1,5 +1,6 @@
 // main.ts
 import './monitoring/metrics'; // инициализация и /metrics сервер
+import { resetMetrics } from './monitoring/metrics';
 import CONFIG from './config';
 import express from 'express';
 import axios from 'axios';
@@ -19,6 +20,16 @@ const PROM_URL = 'http://172.20.0.5:9090'; // prometheus
 // Health
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', pid: process.pid });
+});
+
+app.post('/reset-metrics', async (req, res) => {
+  try {
+    await resetMetrics();
+    res.json({ result: 'ok', msg: 'facultyA metrics reset' });
+  } catch (e: any) {
+    console.error('facultyA reset-metrics error:', e?.message || e);
+    res.status(500).json({ error: 'Failed to reset facultyA metrics' });
+  }
 });
 
 // Status

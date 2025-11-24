@@ -13,3 +13,17 @@ export const getStatus = () => axios.get(`${API_BASE}/status`);
 // Proxy Prometheus query through backend to avoid CORS
 export const queryPrometheus = (query: string) => 
   axios.get(`${API_BASE}/prom-query?query=${encodeURIComponent(query)}`);
+
+export const resetCentralMetrics = () =>
+  axios.post(`${API_BASE}/reset-metrics`, {}, { timeout: 8000 });
+
+export const resetFacultyAMetrics = () =>
+  axios.post(`${FACULTYA_BASE}/reset-metrics`, {}, { timeout: 8000 });
+
+export const resetAllMetrics = async () => {
+  const [central, faculty] = await Promise.allSettled([
+    resetCentralMetrics(),
+    resetFacultyAMetrics(),
+  ]);
+  return { central, faculty };
+};

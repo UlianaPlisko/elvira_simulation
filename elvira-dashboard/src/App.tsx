@@ -33,12 +33,6 @@ export default function App() {
   // Tunable minimum row height (topology and right column will match)
   const ROW_MIN_HEIGHT = { xs: 320, md: 360 };
 
-  // Reset metrics handler (placeholder — wire to backend as needed)
-  const handleResetMetrics = () => {
-    // TODO: call API to reset metrics — placeholder:
-    console.log('Reset metrics clicked');
-  };
-
   return (
     <>
       <AppBar position="static">
@@ -128,7 +122,6 @@ export default function App() {
             startSim(k);
           }}
           onStop={() => stopSim()}
-          onReset={handleResetMetrics}
         />
       </Drawer>
     </>
