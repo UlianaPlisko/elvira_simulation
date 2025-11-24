@@ -28,57 +28,60 @@ app.get('/status', (_req, res) => res.json(state));
 // Endpoint для фронтенда: /facultyA-metrics (формат совпадает с /central-metrics)
 app.get('/facultyA-metrics', async (_req, res) => {
   try {
-    // E_total (custom)
-    const eQuery = 'sum(facultyA_energy_kwh) or vector(0)';
-    const eRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(eQuery)}`);
-    const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] ?? '0');
+    const promQuery = async (q: string): Promise<number> => {
+      try {
+        const r = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(q)}`, { timeout: 5000 });
+        const result = r.data?.data?.result;
+        if (Array.isArray(result) && result.length > 0 && result[0].value && result[0].value.length >= 2) {
+          const v = parseFloat(result[0].value[1]);
+          return Number.isFinite(v) ? v : 0;
+        }
+        return 0;
+      } catch (err: any) {
+        console.warn(`Prom query "${q}" failed:`, err?.message || err);
+        return 0;
+      }
+    };
 
-    // U (books util)
-    const uQuery = 'facultyA_books_util';
-    const uRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(uQuery)}`);
-    const uRaw = uRes.data.data.result.length > 0 ? parseFloat(uRes.data.data.result[0].value[1]) : 0;
-    const u = Number(uRaw.toFixed(6));
-
-    // R (nginx requests) — предполагаем job="nginx-facultyA" в Prometheus scrape_config
-    const rQuery = 'sum(nginx_http_requests_total{job="nginx-facultyA"})';
-    const rRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(rQuery)}`);
-    const r = parseFloat(rRes.data.data.result[0]?.value[1] ?? '0');
-
-    const rpsQuery = 'rate(nginx_http_requests_total{job="nginx-facultyA"}[1m])';
-    const rpsRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(rpsQuery)}`);
-    const rps = parseFloat(rpsRes.data.data.result[0]?.value[1] ?? '0');
-
-    const lambdaQuery = 'facultyA_load_lambda';
-    const lambdaRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(lambdaQuery)}`);
-    const lambda = parseFloat(lambdaRes.data.data.result[0]?.value[1] ?? '0');
-
-    const cpuQuery = 'facultyA_cpu_load';
-    const cpuRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(cpuQuery)}`);
-    const cpuLoad = parseFloat(cpuRes.data.data.result[0]?.value[1] ?? '0');
-
-    const memQuery = 'facultyA_mem_load';
-    const memRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(memQuery)}`);
-    const memLoad = parseFloat(memRes.data.data.result[0]?.value[1] ?? '0');
-
-    const transQuery = 'facultyA_transitions_total';
-    const transRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(transQuery)}`);
-    const transitions = parseFloat(transRes.data.data.result[0]?.value[1] ?? '0');
+    // Run queries in parallel and default to 0 where missing
+    const [
+      eTotalVal,
+      uPercentVal,
+      uMbVal,
+      rVal,
+      rpsVal,
+      lambdaVal,
+      cpuLoadVal,
+      memLoadVal,
+      transitionsVal
+    ] = await Promise.all([
+      promQuery('sum(facultyA_energy_kwh) or vector(0)'),
+      promQuery('facultyA_books_util'),
+      promQuery('facultyA_books_used_mb'), 
+      promQuery('sum(nginx_http_requests_total{job="nginx-facultyA"})'),
+      promQuery('rate(nginx_http_requests_total{job="nginx-facultyA"}[1m])'),
+      promQuery('facultyA_load_lambda'),
+      promQuery('facultyA_cpu_load'),
+      promQuery('facultyA_mem_load'),
+      promQuery('facultyA_transitions_total'),
+    ]);
 
     const t = CONFIG.simulation.duration / 3600;
 
-    res.json({
-      eTotal: Number(eTotal.toFixed(12)),
-      u: u.toFixed(6),
-      r,
-      rps: rps.toFixed(2),
+    return res.json({
+      eTotal: Number(eTotalVal.toFixed(12)),
+      u: uPercentVal.toFixed(6),          // percent string for backward compatibility
+      u_mb: Number(uMbVal.toFixed(6)),    // MB numeric
+      r: Number(rVal),
+      rps: Number(rpsVal).toFixed(2),
       t,
-      lambda: lambda.toFixed(2),
-      cpuLoad: cpuLoad.toFixed(2),
-      memLoad: memLoad.toFixed(2),
-      transitions
+      lambda: Number(lambdaVal).toFixed(2),
+      cpuLoad: Number(cpuLoadVal).toFixed(2),
+      memLoad: Number(memLoadVal).toFixed(2),
+      transitions: Number(transitionsVal)
     });
   } catch (e: any) {
-    console.error('facultyA-metrics error:', e.message || e);
+    console.error('facultyA-metrics error (top):', e?.message || e);
     res.status(500).json({ error: 'Failed to fetch facultyA metrics' });
   }
 });

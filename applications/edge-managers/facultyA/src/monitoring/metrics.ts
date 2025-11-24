@@ -2,6 +2,7 @@
 import promClient from 'prom-client';
 import os from 'os';
 import fs from 'fs/promises';
+import path from 'path';
 import CONFIG from '../config';
 
 // Registry и метрики (префикс facultyA_)
@@ -39,6 +40,10 @@ const booksUsedGauge = new promClient.Gauge({
   name: 'facultyA_books_used_bytes',
   help: 'Real disk used by /var/www/facultyA/books dir (bytes)'
 });
+const booksUsedMbGauge = new promClient.Gauge({
+  name: 'facultyA_books_used_mb', // MB
+  help: 'Real used space for /var/www/books (megabytes) on central'
+});
 
 register.registerMetric(loadGauge);
 register.registerMetric(energyCounter);
@@ -48,6 +53,7 @@ register.registerMetric(nginxLoadGauge);
 register.registerMetric(transitionCounter);
 register.registerMetric(booksUtilGauge);
 register.registerMetric(booksUsedGauge);
+register.registerMetric(booksUsedMbGauge);
 
 // Вспомогательные
 function getCpuLoad(): number {
@@ -62,6 +68,38 @@ function getCpuLoad(): number {
   });
   if (total === 0) return 0;
   return 1 - idle / total;
+}
+
+async function getDirectorySizeBytes(rootDir: string): Promise<number> {
+  let total = 0;
+  const stack = [rootDir];
+
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      // permission or missing dir -> treat as 0 for metrics
+      return total;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isFile()) {
+        try {
+          const st = await fs.stat(full);
+          total += st.size;
+        } catch (e) {
+          // if file disappears or unreadable, skip
+        }
+      } else if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        // ignore symlinks / others or optionally handle
+      }
+    }
+  }
+  return total;
 }
 
 let previousLambda = 0;
@@ -83,16 +121,18 @@ export async function updateMetrics() {
     const memLoad = 1 - os.freemem() / os.totalmem();
     memLoadGauge.set(memLoad);
 
-    // Books statfs
+    const cachePath = '/var/cache/nginx/elvira_cache'; 
     try {
-      const stats = await fs.statfs('/var/www/facultyA/books');
-      const booksUsed = (stats.blocks - stats.bfree) * stats.bsize;
-      const booksTotal = stats.blocks * stats.bsize;
-      const booksUtil = booksTotal > 0 ? (booksUsed / booksTotal) * 100 : 0;
-      booksUsedGauge.set(booksUsed);
-      booksUtilGauge.set(booksUtil);
+      const cacheBytes = await getDirectorySizeBytes(cachePath);
+      // If you want percent util, define a capacity for cache (e.g. 500MB from proxy_cache max_size)
+      const maxCacheBytes = 500 * 1024 * 1024; // example: 500MB as set in nginx proxy_cache_path max_size
+      const cacheUtil = maxCacheBytes > 0 ? (cacheBytes / maxCacheBytes) * 100 : 0;
+
+      booksUsedGauge.set(cacheBytes);           // bytes
+      const mbUsed = cacheBytes / (1024 * 1024);
+      booksUsedMbGauge.set(mbUsed);
+      booksUtilGauge.set(cacheUtil);           // percent
     } catch (e) {
-      // В контейнере statfs может быть недоступен или путь не замончен — ставим 0
       booksUsedGauge.set(0);
       booksUtilGauge.set(0);
     }

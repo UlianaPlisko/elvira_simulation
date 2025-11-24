@@ -1,12 +1,44 @@
-// src/App.tsx
 import './styles.css';
-import { Container, Grid, Typography, AppBar, Toolbar } from '@mui/material';
+import { useState } from 'react';
+import {
+  Container,
+  Grid,
+  Typography,
+  AppBar,
+  Toolbar,
+  Drawer,
+  IconButton,
+  Box,
+  useTheme,
+  useMediaQuery,
+} from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
+import CloseIcon from '@mui/icons-material/Close';
+
 import TopologyDiagram from './components/TopologyDiagram';
 import ControlsPanel from './components/ControlsPanel';
 import EcoIndexCard from './components/EcoIndexCard';
 import NodeMatrix from './components/NodeMatrix';
 
 export default function App() {
+  const [runningSim, setRunningSim] = useState<number | null>(null);
+  const [controlsOpen, setControlsOpen] = useState(false);
+
+  const startSim = (k: number) => setRunningSim(k);
+  const stopSim = () => setRunningSim(null);
+
+  const theme = useTheme();
+  const isSmall = useMediaQuery(theme.breakpoints.down('sm')); // phone
+
+  // Tunable minimum row height (topology and right column will match)
+  const ROW_MIN_HEIGHT = { xs: 320, md: 360 };
+
+  // Reset metrics handler (placeholder — wire to backend as needed)
+  const handleResetMetrics = () => {
+    // TODO: call API to reset metrics — placeholder:
+    console.log('Reset metrics clicked');
+  };
+
   return (
     <>
       <AppBar position="static">
@@ -15,33 +47,90 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      <Container sx={{ mt: 4 }}>
-        {/* Topology row: left big area, right small controls */}
-        <Grid container spacing={3} alignItems="flex-start">
-          
-          <Grid size={{ xs: 12, md: 9 }}>
-            <TopologyDiagram />
+      <Container maxWidth={false} disableGutters sx={{ mt: 4, px: 2 }}>
+        <Grid container spacing={3} alignItems="stretch">
+          {/* LEFT: topology */}
+          <Grid size={{ xs: 12, md: 6 }} sx={{ minHeight: ROW_MIN_HEIGHT }}>
+            <TopologyDiagram runningSim={runningSim} />
           </Grid>
 
-          <Grid size={{ xs: 12, md: 3 }}>
-            <ControlsPanel />
+          {/* RIGHT: EcoIndex (top) + NodeMatrix (fills remaining) */}
+          <Grid
+            size={{ xs: 12, md: 6 }}
+            sx={{ minHeight: ROW_MIN_HEIGHT, display: 'flex', flexDirection: 'column' }}
+          >
+            <Box sx={{ mb: 1 }}>
+              <EcoIndexCard />
+            </Box>
+
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'stretch', justifyContent: 'stretch' }}>
+              {/* NodeMatrix fills right column area; no forced square */}
+              <Box sx={{ width: '100%', height: '100%', display: 'flex' }}>
+                <NodeMatrix fullHeight />
+              </Box>
+            </Box>
           </Grid>
-
-        </Grid>
-
-        {/* Stats row: left EI (big), right node matrix (same width) */}
-        <Grid container spacing={3} sx={{ mt: 1 }}>
-          
-          <Grid size={{ xs: 12, md: 6 }}>
-            <EcoIndexCard />
-          </Grid>
-
-          <Grid size={{ xs: 12, md: 6 }}>
-            <NodeMatrix />
-          </Grid>
-
         </Grid>
       </Container>
+
+      {/* Floating settings button (only shown when drawer is closed) */}
+      {!controlsOpen && (
+        <IconButton
+          aria-label="open controls"
+          onClick={() => setControlsOpen(true)}
+          sx={{
+            position: 'fixed',
+            right: 12,
+            top: 12,
+            zIndex: 1400,
+            bgcolor: 'background.paper',
+            boxShadow: 3,
+            borderRadius: 1,
+            width: 44,
+            height: 44,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            '&:hover': { bgcolor: 'background.default' },
+          }}
+          size="large"
+        >
+          <SettingsIcon />
+        </IconButton>
+      )}
+
+      {/* Drawer for controls */}
+      <Drawer
+        anchor="right"
+        open={controlsOpen}
+        onClose={() => setControlsOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        PaperProps={{
+          sx: {
+            width: isSmall ? '100%' : 360,
+            p: 2,
+            borderTopLeftRadius: 8,
+            borderBottomLeftRadius: 8,
+          },
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="subtitle1">Controls</Typography>
+          {/* simple close icon (no outline, small) */}
+          <IconButton aria-label="close controls" onClick={() => setControlsOpen(false)} sx={{ p: 0.5 }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+
+        <ControlsPanel
+          runningSim={runningSim}
+          onStart={(k) => {
+            startSim(k);
+          }}
+          onStop={() => stopSim()}
+          onReset={handleResetMetrics}
+        />
+      </Drawer>
     </>
   );
 }

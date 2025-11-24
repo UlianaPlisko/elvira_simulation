@@ -1,11 +1,38 @@
-/* src/styles.css */
-body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background: #f5f6fa;
+/* small layout helpers and drawer tab styles */
+
+* { box-sizing: border-box; }
+
+.MuiPaper-root {
+  border-radius: 10px;
 }
 
-/* Make node cards square-ish */
+/* Floating settings tab -- done via IconButton styles in App.tsx,
+   but keep a fallback for visual consistency */
+.settings-tab {
+  position: fixed;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1400;
+}
+
+/* Drawer paper slight rounding on left edge to look like a slide-in panel */
+.MuiDrawer-paper {
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+/* Make svg lines remain crisp when scaled */
+svg line {
+  vector-effect: non-scaling-stroke;
+}
+
+/* NodeMatrix card grid tweaks for full height mode */
+.node-card {
+  height: 100%;
+}
+
+/* Keep node circles nice */
 .node-card-square {
   border-radius: 8px;
   display: flex;
@@ -13,21 +40,8 @@ body {
   justify-content: center;
 }
 
-/* Slightly tighter typography for compact dashboard */
-.MuiTypography-caption {
-  font-size: 0.75rem;
-}
-
-/* Dialog tweaks */
-.MuiDialogContent-root {
-  padding-top: 12px;
-}
-
-/* Responsive h3 */
+/* Small screens: stack everything vertically (Grid xs=12 already does) */
 @media (max-width: 600px) {
-  .MuiTypography-h3 {
-    font-size: 1.4rem;
-  }
   .MuiTypography-h6 {
     font-size: 1rem;
   }

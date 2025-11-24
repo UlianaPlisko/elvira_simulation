@@ -60,13 +60,20 @@ app.get('/central-metrics', async (req, res) => {
     const eRes = await axios.get(`${promUrl}?query=${encodeURIComponent(eQuery)}`);
     const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || '0');
 
-    // U для books (из custom gauge, per-books dir via Node.js)
     const uQuery = 'central_books_util';
     const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
     const uRaw = uRes.data.data.result.length > 0 
       ? parseFloat(uRes.data.data.result[0].value[1])
       : 0;
     const u = Number(uRaw.toFixed(6));
+
+    // MB for books (new metric)
+    const uMbQuery = 'central_books_used_mb';
+    const uMbRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uMbQuery)}`);
+    const uMbRaw = uMbRes.data.data.result.length > 0 
+      ? parseFloat(uMbRes.data.data.result[0].value[1])
+      : 0;
+    const u_mb = Number(uMbRaw.toFixed(6));
 
     // R для central (total requests из nginx-exporter)
     const rQuery = 'sum(nginx_http_requests_total{job="nginx-central"})';
@@ -104,6 +111,7 @@ app.get('/central-metrics', async (req, res) => {
     res.json({
       eTotal: Number(eTotal.toFixed(12)),
       u: u.toFixed(6),
+      u_mb,
       r,
       rps: rps.toFixed(2),
       t,

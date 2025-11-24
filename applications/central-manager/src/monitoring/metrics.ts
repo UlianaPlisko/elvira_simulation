@@ -4,6 +4,7 @@ import promClient from 'prom-client';
 import axios from 'axios';
 import express from 'express';
 import os from 'os';
+import path from 'path';
 import fs from 'fs/promises';
 
 const promUrl = 'http://172.20.0.5:9090';
@@ -34,9 +35,13 @@ const transitionCounter = new promClient.Counter({
   name: 'central_transitions_total',
   help: 'Total server state transitions for central'
 });
-const booksUtilGauge = new promClient.Gauge({  // NEW: U only for books
-  name: 'central_books_util',
-  help: 'Disk utilization % for /var/www/books (static content)'
+const booksUtilGauge = new promClient.Gauge({
+  name: 'central_books_util', // percent 0-100
+  help: 'Disk utilization % for /var/www/books (central)'
+});
+const booksUsedMbGauge = new promClient.Gauge({
+  name: 'central_books_used_mb', // MB
+  help: 'Real used space for /var/www/books (megabytes) on central'
 });
 const booksUsedGauge = new promClient.Gauge({  // NEW: Real used bytes for books
   name: 'central_books_used_bytes',
@@ -52,6 +57,7 @@ register.registerMetric(nginxLoadGauge);
 register.registerMetric(transitionCounter);
 register.registerMetric(booksUtilGauge);
 register.registerMetric(booksUsedGauge);
+register.registerMetric(booksUsedMbGauge);
 
 let previousLambda = 0;
 
@@ -71,6 +77,39 @@ function getCpuLoad(): number {
   });
   if (total === 0) return 0;
   return 1 - idle / total;
+}
+
+
+async function getDirectorySizeBytes(rootDir: string): Promise<number> {
+  let total = 0;
+  const stack = [rootDir];
+
+  while (stack.length) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      // permission or missing dir -> treat as 0 for metrics
+      return total;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isFile()) {
+        try {
+          const st = await fs.stat(full);
+          total += st.size;
+        } catch (e) {
+          // if file disappears or unreadable, skip
+        }
+      } else if (entry.isDirectory()) {
+        stack.push(full);
+      } else {
+        // ignore symlinks / others or optionally handle
+      }
+    }
+  }
+  return total;
 }
 
 async function getPromValue(query: string): Promise<number> {
@@ -100,18 +139,20 @@ export async function updateMetrics() {
     let memLoad = 1 - os.freemem() / os.totalmem();
     memLoadGauge.set(memLoad);
 
-    // Books util & used: Use Node.js fs (specific to books dir)
+    const cachePath = '/var/www/elvira/books'; 
     try {
-      const booksStats = await fs.statfs('/var/www/books');
-      const booksUsed = (booksStats.blocks - booksStats.bfree) * booksStats.bsize;  // Real used
-      const booksTotal = booksStats.blocks * booksStats.bsize;  // Total allocated for dir
-      const booksUtil = booksTotal > 0 ? (booksUsed / booksTotal) * 100 : 0;
-      booksUtilGauge.set(booksUtil);
-      booksUsedGauge.set(booksUsed);
+      const cacheBytes = await getDirectorySizeBytes(cachePath);
+      // If you want percent util, define a capacity for cache (e.g. 500MB from proxy_cache max_size)
+      const maxCacheBytes = 500 * 1024 * 1024; // example: 500MB as set in nginx proxy_cache_path max_size
+      const cacheUtil = maxCacheBytes > 0 ? (cacheBytes / maxCacheBytes) * 100 : 0;
+
+      booksUsedGauge.set(cacheBytes);           // bytes
+      const mbUsed = cacheBytes / (1024 * 1024);
+      booksUsedMbGauge.set(mbUsed);
+      booksUtilGauge.set(cacheUtil);           // percent
     } catch (e) {
-      console.error('Books statfs error:', e);
-      booksUtilGauge.set(0);
       booksUsedGauge.set(0);
+      booksUtilGauge.set(0);
     }
 
     // Combined lambda (Nginx + CPU + Mem / 3)
