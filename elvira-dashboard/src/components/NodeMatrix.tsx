@@ -140,7 +140,7 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
         {/* Row 1: central spans cols 1-3, small node on col4 */}
         <Box sx={{ gridColumn: { xs: '1 / span 2', md: '1 / span 3' }, gridRow: { xs: '1', md: '1' } }}>
           <NodeCard
-            title="Central (1×3)"
+            title="Central Server"
             subtitle="Central NGINX"
             data={central}
             onOpen={() => setOpenNode({ id: 'central', data: central })}

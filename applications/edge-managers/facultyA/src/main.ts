@@ -22,19 +22,54 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', pid: process.pid });
 });
 
+// Status
+const state = { lastPrefetch: 0, prefetchActive: false };
+let baselineRequestsFacultyA = 0;
+// Пока Date.now() < zeroRpsUntil — будем отдавать rps = 0
+let zeroRpsUntil = 0;
+
+app.get('/status', (_req, res) => res.json(state));
+
+/**
+ * POST /reset-metrics
+ * Тело: { runningSim?: number | null } — backend дополнительно проверяет, что симуляция не запущена.
+ */
 app.post('/reset-metrics', async (req, res) => {
   try {
+    const runningSim = (req.body && typeof req.body.runningSim !== 'undefined') ? req.body.runningSim : null;
+    if (runningSim !== null && runningSim !== undefined) {
+      // Если frontend прислал идентификатор запущенной симуляции — запрещаем reset
+      if (runningSim !== null) {
+        return res.status(400).json({ error: 'Cannot reset while a simulation is running' });
+      }
+    }
+
+    // Reset локальных prom-client метрик
     await resetMetrics();
+
+    // Установить baseline для счетчика nginx, чтобы UI показывал "since reset"
+    try {
+      const rQuery = 'sum(nginx_http_requests_total{job="nginx-facultyA"})';
+      const queryUrl = `${PROM_URL}/api/v1/query?query=${encodeURIComponent(rQuery)}`;
+      const rRes = await axios.get(queryUrl, { timeout: 5000 });
+      const raw = rRes.data?.data?.result?.[0]?.value?.[1];
+      const current = parseFloat(raw || '0');
+      baselineRequestsFacultyA = Number.isFinite(current) ? current : 0;
+      console.log('FacultyA: baselineRequestsFacultyA set to', baselineRequestsFacultyA);
+    } catch (err: any) {
+      console.warn('FacultyA: failed to set baselineRequestsFacultyA (Prometheus query):', err?.message || err);
+      // baseline не меняем в случае ошибки
+    }
+
+    // Короткое обнуление rps — 5 секунд после reset возвращаем rps=0 (можно изменить)
+    zeroRpsUntil = Date.now() + 5000;
+
     res.json({ result: 'ok', msg: 'facultyA metrics reset' });
   } catch (e: any) {
     console.error('facultyA reset-metrics error:', e?.message || e);
     res.status(500).json({ error: 'Failed to reset facultyA metrics' });
   }
 });
-
-// Status
-const state = { lastPrefetch: 0, prefetchActive: false };
-app.get('/status', (_req, res) => res.json(state));
 
 // Endpoint для фронтенда: /facultyA-metrics (формат совпадает с /central-metrics)
 app.get('/facultyA-metrics', async (_req, res) => {
@@ -54,7 +89,7 @@ app.get('/facultyA-metrics', async (_req, res) => {
       }
     };
 
-    // Run queries in parallel and default to 0 where missing
+    // Запросы в параллель
     const [
       eTotalVal,
       uPercentVal,
@@ -68,7 +103,7 @@ app.get('/facultyA-metrics', async (_req, res) => {
     ] = await Promise.all([
       promQuery('sum(facultyA_energy_kwh) or vector(0)'),
       promQuery('facultyA_books_util'),
-      promQuery('facultyA_books_used_mb'), 
+      promQuery('facultyA_books_used_mb'),
       promQuery('sum(nginx_http_requests_total{job="nginx-facultyA"})'),
       promQuery('rate(nginx_http_requests_total{job="nginx-facultyA"}[1m])'),
       promQuery('facultyA_load_lambda'),
@@ -79,12 +114,24 @@ app.get('/facultyA-metrics', async (_req, res) => {
 
     const t = CONFIG.simulation.duration / 3600;
 
+    // Корректировка total requests по baseline (requests since reset)
+    const rAdjusted = Math.max(0, (rVal || 0) - (baselineRequestsFacultyA || 0));
+
+    // rps: если недавно был reset — отдаём 0, иначе используем rate() результат (rpsVal)
+    let rps: number;
+    if (Date.now() < zeroRpsUntil) {
+      rps = 0;
+    } else {
+      // использовать rpsVal, который мы уже запросили в параллеле
+      rps = Number.isFinite(rpsVal) ? rpsVal : 0;
+    }
+
     return res.json({
       eTotal: Number(eTotalVal.toFixed(12)),
-      u: uPercentVal.toFixed(6),          // percent string for backward compatibility
-      u_mb: Number(uMbVal.toFixed(6)),    // MB numeric
-      r: Number(rVal),
-      rps: Number(rpsVal).toFixed(2),
+      u: uPercentVal.toFixed(6),
+      u_mb: Number(uMbVal.toFixed(6)),
+      r: Number(rAdjusted),
+      rps: Number(rps.toFixed(2)),
       t,
       lambda: Number(lambdaVal).toFixed(2),
       cpuLoad: Number(cpuLoadVal).toFixed(2),

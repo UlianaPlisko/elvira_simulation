@@ -31,7 +31,7 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
 
     setLoadingReset(true);
     try {
-      const { central, faculty } = await resetAllMetrics();
+      const { central, faculty } = await resetAllMetrics(runningSim);
 
       const results: string[] = [];
 

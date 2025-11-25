@@ -14,16 +14,18 @@ export const getStatus = () => axios.get(`${API_BASE}/status`);
 export const queryPrometheus = (query: string) => 
   axios.get(`${API_BASE}/prom-query?query=${encodeURIComponent(query)}`);
 
-export const resetCentralMetrics = () =>
-  axios.post(`${API_BASE}/reset-metrics`, {}, { timeout: 8000 });
+export const resetCentralMetrics = (body: any = {}) =>
+  axios.post(`${API_BASE}/reset-metrics`, body, { timeout: 8000 });
 
-export const resetFacultyAMetrics = () =>
-  axios.post(`${FACULTYA_BASE}/reset-metrics`, {}, { timeout: 8000 });
+export const resetFacultyAMetrics = (body: any = {}) =>
+  axios.post(`${FACULTYA_BASE}/reset-metrics`, body, { timeout: 8000 });
 
-export const resetAllMetrics = async () => {
+
+export const resetAllMetrics = async (runningSim: number | null) => {
+  const body = { runningSim }; // frontend отправляет текущее состояние (id или null)
   const [central, faculty] = await Promise.allSettled([
-    resetCentralMetrics(),
-    resetFacultyAMetrics(),
+    resetCentralMetrics(body),
+    resetFacultyAMetrics(body),
   ]);
   return { central, faculty };
 };
