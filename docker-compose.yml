@@ -10,6 +10,8 @@ services:
     - "3100:3100"  # For /eco-index, /health, etc.
     volumes:
       - ./data:/var/www/books:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # Для доступа к Docker daemon
+      - .:/project:ro
     networks:
       elvira-net:
         ipv4_address: 172.20.0.2
@@ -17,6 +19,7 @@ services:
       - main-dns
       - secondary-dns
     privileged: true
+    profiles: []
   facultyA-edge:
     build:
       context: .
@@ -35,6 +38,7 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    profiles: []
   main-dns:
     build:
       context: .
@@ -47,6 +51,7 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.3
+    profiles: []
   secondary-dns:
     build:
       context: .
@@ -64,6 +69,7 @@ services:
       - net.ipv4.ip_forward=1
     cap_add:
       - NET_ADMIN
+    profiles: []
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -73,6 +79,7 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.5
+    profiles: []
   student-facultyA:
     build:
       context: .
@@ -97,6 +104,8 @@ services:
       - main-dns
       - secondary-dns
     privileged: true
+    profiles:  # Add this!
+      - simulator
   node-exporter-central:
     image: prom/node-exporter:latest
     container_name: node-exporter-central
@@ -111,6 +120,7 @@ services:
       - '--path.rootfs=/host'
     depends_on:
       - central-nginx
+    profiles: []
   node-exporter-facultyA:
     image: prom/node-exporter:latest
     container_name: node-exporter-facultyA
@@ -125,6 +135,7 @@ services:
       - '--path.rootfs=/host'
     depends_on:
       - facultyA-edge
+    profiles: []
 
   nginx-exporter-central:
     image: nginx/nginx-prometheus-exporter:latest
@@ -138,6 +149,7 @@ services:
       - -nginx.scrape-uri=http://172.20.0.2/stub_status
     depends_on:
       - central-nginx
+    profiles: []
 
   nginx-exporter-facultyA:
     image: nginx/nginx-prometheus-exporter:latest
@@ -151,6 +163,7 @@ services:
       - -nginx.scrape-uri=http://172.20.0.10/stub_status
     depends_on:
       - facultyA-edge
+    profiles: []
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest 
     container_name: cadvisor
@@ -168,6 +181,7 @@ services:
     depends_on:
       - central-nginx
       - facultyA-edge
+    profiles: []
   dashboard:
     build:
       context: ./elvira-dashboard
@@ -181,6 +195,7 @@ services:
     networks:
       elvira-net:
         ipv4_address: 172.20.0.20
+    profiles: []
 networks:
   elvira-net:
     driver: bridge

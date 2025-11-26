@@ -1,7 +1,7 @@
 // src/components/ControlsPanel.tsx
 import { useState } from 'react';
 import { Box, Paper, Typography, Stack, Button, Divider, Chip, Tooltip } from '@mui/material';
-import { resetAllMetrics } from '../services/api';
+import { resetAllMetrics, startSimulation, stopSimulation } from '../services/api';  // Добавили import для start/stop
 
 type Props = {
   runningSim: number | null;
@@ -12,6 +12,7 @@ type Props = {
 
 export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: Props) {
   const [loadingReset, setLoadingReset] = useState(false);
+  const [loadingSim, setLoadingSim] = useState(false);  // Новый state для loading во время start/stop
 
   const simulations = [
     { id: 1, label: 'Simulation 1', caption: 'baseline run' },
@@ -67,6 +68,32 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
     }
   };
 
+  // Новый handler для start/stop симуляции (только для id=1)
+  const handleStartStop = async (id: number, isRunning: boolean) => {
+    if (id !== 1) {
+      console.log(`Simulation ${id} not implemented yet`);
+      return;  // Заглушка для 2 и 3
+    }
+
+    setLoadingSim(true);
+    try {
+      if (isRunning) {
+        await stopSimulation();
+        console.log('Simulation stopped');
+        onStop();  // Вызов пропса для обновления состояния в parent
+      } else {
+        await startSimulation();
+        console.log('Simulation started');
+        onStart(id);  // Вызов пропса
+      }
+    } catch (err) {
+      console.error('Simulation error:', err);
+      alert('Failed to control simulation (see console)');
+    } finally {
+      setLoadingSim(false);
+    }
+  };
+
   return (
     <Paper sx={{ p: 2 }}>
       <Typography variant="subtitle1" gutterBottom>
@@ -80,6 +107,7 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
         {simulations.map((s) => {
           const isRunning = runningSim === s.id;
           const disabledOther = runningSim !== null && !isRunning;
+          const isDisabled = disabledOther || loadingSim || (s.id !== 1 && !isRunning);  // Для 2/3 disable start, если не running
           return (
             <Box key={s.id}>
               <Tooltip title={lorem} arrow>
@@ -87,10 +115,10 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
                   <Button
                     variant={isRunning ? 'outlined' : 'contained'}
                     fullWidth
-                    onClick={() => (isRunning ? onStop() : onStart(s.id))}
-                    disabled={disabledOther}
+                    onClick={() => handleStartStop(s.id, isRunning)}
+                    disabled={isDisabled}
                   >
-                    {isRunning ? `Stop ${s.label}` : `Start ${s.label}`}
+                    {loadingSim && s.id === 1 ? 'Processing...' : (isRunning ? `Stop ${s.label}` : `Start ${s.label}`)}
                   </Button>
                 </span>
               </Tooltip>
@@ -115,7 +143,7 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
         </Button>
 
         <Typography variant="caption" color="text.secondary">
-          Buttons are design-only now. Connect your backend later to control simulations and reset metrics.
+          Buttons are connected to backend for Simulation 1. Others are design-only for now.
         </Typography>
       </Stack>
     </Paper>

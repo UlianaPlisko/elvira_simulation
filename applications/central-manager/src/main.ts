@@ -8,6 +8,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import cors from 'cors';
 import { resetMetrics } from './monitoring/metrics';
+import { startSimulator, stopSimulator, restartSimulator, getSimulatorStatus } from './control/simulatorControl';
 
 const execAsync = util.promisify(exec);
 
@@ -204,6 +205,42 @@ app.get('/prom-query', async (req, res) => {
 
 const server = app.listen(CONTROL_PORT, () => {
   console.log(`Central control API listening on ${CONTROL_PORT}`);
+});
+
+app.post('/simulator/start', async (req, res) => {
+  try {
+    const message = await startSimulator();
+    res.json({ message, service: 'student-facultyA' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/simulator/stop', async (req, res) => {
+  try {
+    const message = await stopSimulator();
+    res.json({ message, service: 'student-facultyA' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/simulator/restart', async (req, res) => {
+  try {
+    const message = await restartSimulator();
+    res.json({ message, service: 'student-facultyA' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/simulator/status', async (req, res) => {
+  try {
+    const status = await getSimulatorStatus();
+    res.json(status);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // --- Decision loop ---

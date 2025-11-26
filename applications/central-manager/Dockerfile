@@ -23,9 +23,10 @@ RUN npm run build
 # ---- Final image ----
 FROM nginx:alpine
 
-# Устанавливаем node runtime только если нужно (мы запустим node из dist)
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
     apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash iproute2 && \
+    # Добавляем Docker CLI и Compose плагин для выполнения команд из контейнера
+    apk add --no-cache docker-cli docker-cli-compose && \
     rm -rf /var/cache/apk/*
 
 # nginx config и статический контент

@@ -29,3 +29,11 @@ export const resetAllMetrics = async (runningSim: number | null) => {
   ]);
   return { central, faculty };
 };
+
+export const startSimulation = () => axios.post(`${API_BASE}/simulator/start`);
+
+export const stopSimulation = () => axios.post(`${API_BASE}/simulator/stop`);
+
+export const restartSimulation = () => axios.post(`${API_BASE}/simulator/restart`);
+
+export const getSimulationStatus = () => axios.get(`${API_BASE}/simulator/status`);
