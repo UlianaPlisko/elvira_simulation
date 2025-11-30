@@ -12,8 +12,14 @@ const CONFIG = {
     centralServer: '172.20.0.2/32',
     dnsServer: '172.20.0.3/32',
     prometheusServer: '172.20.0.5/32'
-  }
+  },
+  prometheus: {
+    url: 'http://172.20.0.5:9090' // optional - defaults to the value already used
+  },
+  metrics: {selector: 'container_label_com_docker_compose_service="central-nginx"'},
+  cache: {maxSizeBytes: 500 * 1024 * 1024}
 } as const;
+
 
 export default CONFIG;
 export type ConfigType = typeof CONFIG;

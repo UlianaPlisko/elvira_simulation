@@ -4,28 +4,29 @@ global:
 scrape_configs:
   - job_name: 'central-node'
     static_configs:
-      - targets: ['172.20.0.6:9100']  # node-exporter-central (disk, CPU, etc.)
+      - targets: ['node-exporter-central:9100']          
+
   - job_name: 'facultyA-node'
     static_configs:
-      - targets: ['172.20.0.11:9100']  # node-exporter-facultyA
+      - targets: ['node-exporter-facultyA:9100']         
+
   - job_name: 'nginx-central'
     static_configs:
-      - targets: ['172.20.0.7:9113']  # nginx-exporter-central (requests)
+      - targets: ['nginx-exporter-central:9113']         
+
   - job_name: 'nginx-facultyA'
     static_configs:
-      - targets: ['172.20.0.12:9113']  # nginx-exporter-facultyA
+      - targets: ['nginx-exporter-facultyA:9113']        
+
   - job_name: 'central-custom'
     static_configs:
-      - targets: ['central-nginx:3000']  # Ваши custom метрики (энергия)
+      - targets: ['central-nginx:3000']                   
+
   - job_name: 'facultyA-custom'
     static_configs:
-      - targets: ['facultyA-edge:3002']  # Custom для edge
-  - job_name: 'dns'
+      - targets: ['facultyA-edge:3002']                         
+
+  - job_name: 'logporter'
+    scrape_interval: 5s                                 
     static_configs:
-      - targets: ['main-dns:9153', 'secondary-dns:9153']
-  - job_name: 'student-facultyA'
-    static_configs:
-      - targets: ['student-facultyA:9400']
-  - job_name: 'cadvisor'
-    static_configs:
-      - targets: ['172.20.0.13:8080']
+      - targets: ['logporter:9333']                      

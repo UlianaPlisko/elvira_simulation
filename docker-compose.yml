@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: applications/central-manager/Dockerfile
     image: elvira-simulation-central-nginx
+    container_name: central-nginx
     ports:
     - "8080:80"  # Existing
     - "3000:3000"  # For /metrics (Prometheus already scrapes internally, but useful for debug)
@@ -25,6 +26,7 @@ services:
       context: .
       dockerfile: applications/edge-managers/facultyA/Dockerfile
     image: elvira-simulation-facultya-edge
+    container_name: facultyA-edge
     ports:
     - "8081:80"  # Existing
     - "3001:3001"
@@ -44,6 +46,7 @@ services:
       context: .
       dockerfile: infra/dns/main/Dockerfile  # Point to the copied Dockerfile
     image: elvira-simulation-main-dns  # New image name
+    container_name: main-dns
     ports:
       - "53:53/udp"
     volumes:
@@ -60,6 +63,7 @@ services:
       - "1053:53/udp"
     volumes:
       - ./infra/dns/secondary/Corefile:/Corefile:ro
+    container_name: secondary-dns
     networks:
       elvira-net:
         ipv4_address: 172.20.0.4
@@ -72,11 +76,12 @@ services:
     profiles: []
   prometheus:
     image: prom/prometheus:latest
+    container_name: prometheus
     ports:
       - "9090:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
+    networks:               
       elvira-net:
         ipv4_address: 172.20.0.5
     profiles: []
@@ -164,23 +169,24 @@ services:
     depends_on:
       - facultyA-edge
     profiles: []
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest 
-    container_name: cadvisor
-    ports:
-      - "8082:8080"
-    networks:
-      elvira-net:
-        ipv4_address: 172.20.0.13
+  logporter:
+    image: lifailon/logporter:latest       
+    container_name: logporter
+    restart: unless-stopped
     volumes:
-      - /:/rootfs:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro  # Добавлено для фикса WSL disk usage
-    privileged: true
+      - /var/run/docker.sock:/var/run/docker.sock:ro  
+    ports:
+      - 9333:9333
+    environment:
+      - DOCKER_LOG_METRICS=false
+      - DOCKER_LOG_CUSTOM_METRICS=false
+      - DOCKER_LOG_CUSTOM_QUERY=(err|error|ERR|ERROR)
     depends_on:
       - central-nginx
       - facultyA-edge
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.13
     profiles: []
   dashboard:
     build:
@@ -189,6 +195,7 @@ services:
     ports:
       - "3101:3101"  
     command: npm start
+    container_name: elvira-dashboard
     depends_on:
       - central-nginx
       - prometheus
