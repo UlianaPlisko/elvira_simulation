@@ -17,7 +17,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { useEffect, useState, useCallback } from 'react';
-import { getCentralMetrics, getFacultyAMetrics } from '../services/api';
+import { getCentralMetrics, getFacultyAMetrics, getFacultyBMetrics, getFacultyCMetrics, getFacultyDMetrics, getFacultyEMetrics } from '../services/api';
 import MemoryIcon from '@mui/icons-material/Memory';
 import CpuIcon from '@mui/icons-material/Computer';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -210,10 +210,15 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
     let mounted = true;
     const fetch = async () => {
       try {
-        const [c, a] = await Promise.all([getCentralMetrics(), getFacultyAMetrics()]);
+        // fetch central, faculty A and faculty B
+        const [cent, a, b, c, d, e] = await Promise.all([getCentralMetrics(), getFacultyAMetrics(), getFacultyBMetrics(), getFacultyCMetrics(), getFacultyDMetrics(), getFacultyEMetrics()]);
         if (!mounted) return;
-        if (c.data) setCentral(c.data);
+        if (cent.data) setCentral(cent.data);
         if (a.data) setEdges(prev => ({ ...prev, A: a.data }));
+        if (b.data) setEdges(prev => ({ ...prev, B: b.data })); 
+        if (c.data) setEdges(prev => ({ ...prev, C: c.data }));
+        if (d.data) setEdges(prev => ({ ...prev, D: d.data }));
+        if (e.data) setEdges(prev => ({ ...prev, E: e.data }));
       } catch (e) {
         console.error('NodeMatrix fetch error:', e);
       }
@@ -288,7 +293,7 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
           />
         </Box>
       ))}
-      
+
     </Box>
       {/* ДЕТАЛЬНЫЙ ДИАЛОГ — обновляется в реальном времени + кнопка Prefetch */}
       <Dialog open={!!openNode} onClose={() => setOpenNode(null)} maxWidth="md" fullWidth>

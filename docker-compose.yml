@@ -41,6 +41,90 @@ services:
       - central-nginx
     privileged: true
     profiles: []
+  facultyB-edge:
+    build:
+      context: .
+      dockerfile: applications/edge-managers/facultyB/Dockerfile
+    image: elvira-simulation-facultyb-edge
+    container_name: facultyB-edge
+    ports:
+      - "8082:80"
+      - "3002:3002"
+    volumes:
+      - ./data:/var/www/cache:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.20
+      facultyB-net:
+        ipv4_address: 192.168.2.10
+    depends_on:
+      - central-nginx
+    privileged: true
+    profiles: []
+  
+  facultyC-edge:
+    build:
+      context: .
+      dockerfile: applications/edge-managers/facultyC/Dockerfile
+    image: elvira-simulation-facultyc-edge
+    container_name: facultyC-edge
+    ports:
+      - "8083:80"
+      - "3003:3003"
+    volumes:
+      - ./data:/var/www/cache:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.30
+      facultyC-net:
+        ipv4_address: 192.168.3.10
+    depends_on:
+      - central-nginx
+    privileged: true
+    profiles: []
+
+  facultyD-edge:
+    build:
+      context: .
+      dockerfile: applications/edge-managers/facultyD/Dockerfile
+    image: elvira-simulation-facultyd-edge
+    container_name: facultyD-edge
+    ports:
+      - "8084:80"
+      - "3004:3004"
+    volumes:
+      - ./data:/var/www/cache:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.40
+      facultyD-net:
+        ipv4_address: 192.168.4.10
+    depends_on:
+      - central-nginx
+    privileged: true
+    profiles: []
+
+  facultyE-edge:
+    build:
+      context: .
+      dockerfile: applications/edge-managers/facultye/Dockerfile
+    image: elvira-simulation-facultye-edge
+    container_name: facultyE-edge
+    ports:
+      - "8085:80"
+      - "3005:3005"
+    volumes:
+      - ./data:/var/www/cache:ro
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.50
+      facultyE-net:
+        ipv4_address: 192.168.5.10
+    depends_on:
+      - central-nginx
+    privileged: true
+    profiles: []
+
   main-dns:
     build:
       context: .
@@ -69,6 +153,10 @@ services:
         ipv4_address: 172.20.0.4
       facultyA-net:
         ipv4_address: 192.168.1.5
+      facultyB-net:
+        ipv4_address: 192.168.2.5
+      facultyC-net:
+        ipv4_address: 192.168.3.5
     sysctls:
       - net.ipv4.ip_forward=1
     cap_add:
@@ -111,7 +199,7 @@ services:
     privileged: true
     profiles:  # Add this!
       - simulator
-  node-exporter-central:
+  node-exporter-host:
     image: prom/node-exporter:latest
     container_name: node-exporter-central
     ports:
@@ -125,21 +213,6 @@ services:
       - '--path.rootfs=/host'
     depends_on:
       - central-nginx
-    profiles: []
-  node-exporter-facultyA:
-    image: prom/node-exporter:latest
-    container_name: node-exporter-facultyA
-    ports:
-      - "9101:9100"  # Separate port to avoid conflict
-    networks:
-      elvira-net:
-        ipv4_address: 172.20.0.11
-    volumes:
-      - /:/host:ro
-    command:
-      - '--path.rootfs=/host'
-    depends_on:
-      - facultyA-edge
     profiles: []
 
   nginx-exporter-central:
@@ -169,6 +242,57 @@ services:
     depends_on:
       - facultyA-edge
     profiles: []
+  nginx-exporter-facultyB:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-facultyB
+    ports:
+      - "9115:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.16
+    command:
+      - -nginx.scrape-uri=http://172.20.0.20/stub_status
+    depends_on:
+      - facultyB-edge
+
+  nginx-exporter-facultyC:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-facultyC
+    ports:
+      - "9116:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.17
+    command:
+      - -nginx.scrape-uri=http://172.20.0.30/stub_status
+    depends_on:
+      - facultyC-edge
+
+  nginx-exporter-facultyD:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-facultyD
+    ports:
+      - "9117:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.18
+    command:
+      - -nginx.scrape-uri=http://172.20.0.40/stub_status
+    depends_on:
+      - facultyD-edge
+
+  nginx-exporter-facultyE:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter-facultyE
+    ports:
+      - "9118:9113"
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.19
+    command:
+      - -nginx.scrape-uri=http://172.20.0.50/stub_status
+    depends_on:
+      - facultyE-edge
   logporter:
     image: lifailon/logporter:latest       
     container_name: logporter
@@ -181,9 +305,6 @@ services:
       - DOCKER_LOG_METRICS=false
       - DOCKER_LOG_CUSTOM_METRICS=false
       - DOCKER_LOG_CUSTOM_QUERY=(err|error|ERR|ERROR)
-    depends_on:
-      - central-nginx
-      - facultyA-edge
     networks:
       elvira-net:
         ipv4_address: 172.20.0.13
@@ -201,7 +322,27 @@ services:
       - prometheus
     networks:
       elvira-net:
-        ipv4_address: 172.20.0.20
+        ipv4_address: 172.20.0.21
+    profiles: []
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3010:3000"                  
+    volumes:
+      - grafana-data:/var/lib/grafana 
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro 
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123  
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      elvira-net:
+        ipv4_address: 172.20.0.31  
+    depends_on:
+      - prometheus
     profiles: []
 networks:
   elvira-net:
@@ -214,3 +355,26 @@ networks:
     ipam:
       config:
         - subnet: "192.168.1.0/24"
+  facultyB-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.2.0/24"
+  facultyC-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.3.0/24"
+  facultyD-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.4.0/24"
+  facultyE-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "192.168.5.0/24"
+  
+volumes:
+  grafana-data:

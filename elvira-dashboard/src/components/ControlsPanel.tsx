@@ -32,7 +32,7 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
 
     setLoadingReset(true);
     try {
-      const { central, faculty } = await resetAllMetrics(runningSim);
+      const { central, facultyA, facultyB, facultyC, facultyD, facultyE } = await resetAllMetrics(runningSim);
 
       const results: string[] = [];
 
@@ -49,17 +49,58 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
       }
 
       // faculty
-      if (faculty.status === 'fulfilled') {
-        const res = faculty.value;
+      if (facultyA.status === 'fulfilled') {
+        const res = facultyA.value;
         if (res && res.status >= 200 && res.status < 300) {
           results.push('Faculty A reset OK');
         } else {
           results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
         }
       } else {
-        results.push(`Faculty A reset failed: ${String(faculty.reason)}`);
+        results.push(`Faculty A reset failed: ${String(facultyA.reason)}`);
       }
-      console.log('Reset metrics results:', results); //todoooooo later!!!!!!!!!
+
+      if (facultyB.status === 'fulfilled') {
+        const res = facultyB.value;
+        if (res && res.status >= 200 && res.status < 300) {
+          results.push('Faculty A reset OK');
+        } else {
+          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+        }
+      } else {
+        results.push(`Faculty A reset failed: ${String(facultyB.reason)}`);
+      }
+      if (facultyC.status === 'fulfilled') {
+        const res = facultyC.value;
+        if (res && res.status >= 200 && res.status < 300) {
+          results.push('Faculty A reset OK');
+        } else {
+          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+        }
+      } else {
+        results.push(`Faculty A reset failed: ${String(facultyC.reason)}`);
+      }
+      if (facultyD.status === 'fulfilled') {
+        const res = facultyD.value;
+        if (res && res.status >= 200 && res.status < 300) {
+          results.push('Faculty A reset OK');
+        } else {
+          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+        }
+      } else {
+        results.push(`Faculty A reset failed: ${String(facultyD.reason)}`);
+      }
+      if (facultyE.status === 'fulfilled') {
+        const res = facultyE.value;
+        if (res && res.status >= 200 && res.status < 300) {
+          results.push('Faculty A reset OK');
+        } else {
+          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+        }
+      } else {
+        results.push(`Faculty A reset failed: ${String(facultyE.reason)}`);
+      }
+      console.log('Reset metrics results:', results); 
     } catch (err) {
       console.error('Unexpected reset error:', err);
       alert('Reset failed (see console)');

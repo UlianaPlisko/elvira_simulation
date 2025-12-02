@@ -67,7 +67,7 @@ let previousLambda = 0;
 export async function updateMetrics() {
   try {
     // 1. Host CPU % (node-exporter) — для реалистичного λ
-    const hostCpu = await query('100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle", job="central-node"}[2m])))');
+    const hostCpu = await query('100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle", job="host-node"}[1m])))');
     hostCpuPercent.set(hostCpu);
 
     // 2. Контейнер CPU % — ТОЧНО КАК В docker stats (logporter + rate)

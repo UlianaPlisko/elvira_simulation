@@ -8,38 +8,38 @@ import path from 'path';
 const promUrl = CONFIG.prometheus?.url || 'http://prometheus:9090';
 const register = new promClient.Registry();
 
-const CONTAINER_NAME = CONFIG.metrics?.containerName || 'facultyA-edge';
+const CONTAINER_NAME = CONFIG.metrics?.containerName || 'facultyC-edge';
 const BOOKS_PATH = '/var/cache/nginx/elvira_cache';
 const MAX_BOOKS_BYTES = CONFIG.cache?.maxSizeBytes ?? 500 * 1024 * 1024; // default 500MB for an edge
 
-// ======================= METRICS (prefixed facultyA_) =======================
-const lambdaGauge          = new promClient.Gauge({ name: 'facultyA_load_lambda',               help: 'λ(t) — итоговая нагрузка 0-1 (facultyA)' });
-const powerWattsGauge      = new promClient.Gauge({ name: 'facultyA_power_watts',               help: 'Текущая мощность (Вт) (facultyA)' });
-const energyTotalKwh       = new promClient.Counter({ name: 'facultyA_energy_kwh',              help: 'Общее потребление энергии (kWh) (facultyA)' });
-const transitionsTotal     = new promClient.Counter({ name: 'facultyA_transitions_total',       help: 'Количество переходов через порог (facultyA)' });
+// ======================= METRICS (prefixed facultyC_) =======================
+const lambdaGauge          = new promClient.Gauge({ name: 'facultyC_load_lambda',               help: 'λ(t) — итоговая нагрузка 0-1 (facultyC)' });
+const powerWattsGauge      = new promClient.Gauge({ name: 'facultyC_power_watts',               help: 'Текущая мощность (Вт) (facultyC)' });
+const energyTotalKwh       = new promClient.Counter({ name: 'facultyC_energy_kwh',              help: 'Общее потребление энергии (kWh) (facultyC)' });
+const transitionsTotal     = new promClient.Counter({ name: 'facultyC_transitions_total',       help: 'Количество переходов через порог (facultyC)' });
 
 // Host (node-exporter)
-const hostCpuPercent       = new promClient.Gauge({ name: 'facultyA_host_cpu_percent',          help: 'CPU хоста (%) — node-exporter (facultyA)' });
+const hostCpuPercent       = new promClient.Gauge({ name: 'facultyC_host_cpu_percent',          help: 'CPU хоста (%) — node-exporter (facultyC)' });
 
 // Container (logporter / docker metrics)
-const containerCpuPercent  = new promClient.Gauge({ name: 'facultyA_cpu_load',                  help: 'CPU контейнера (%) — как в docker stats (facultyA)' });
-const containerMemBytes    = new promClient.Gauge({ name: 'facultyA_mem_usage_bytes',           help: 'RAM контейнера (bytes) (facultyA)' });
-const containerMemPercent  = new promClient.Gauge({ name: 'facultyA_mem_load',                  help: 'RAM контейнера (%) (facultyA)' });
-const containerNetRxBytes  = new promClient.Gauge({ name: 'facultyA_net_rx_bytes_per_sec',      help: 'Сеть входящая (bytes/sec) (facultyA)' });
-const containerNetTxBytes  = new promClient.Gauge({ name: 'facultyA_net_tx_bytes_per_sec',      help: 'Сеть исходящая (bytes/sec) (facultyA)' });
-const containerDiskRead    = new promClient.Gauge({ name: 'facultyA_disk_read_bytes_per_sec',   help: 'Диск чтение (bytes/sec) (facultyA)' });
-const containerDiskWrite   = new promClient.Gauge({ name: 'facultyA_disk_write_bytes_per_sec',  help: 'Диск запись (bytes/sec) (facultyA)' });
-const containerPids        = new promClient.Gauge({ name: 'facultyA_process_count',             help: 'Количество процессов в контейнере (facultyA)' });
+const containerCpuPercent  = new promClient.Gauge({ name: 'facultyC_cpu_load',                  help: 'CPU контейнера (%) — как в docker stats (facultyC)' });
+const containerMemBytes    = new promClient.Gauge({ name: 'facultyC_mem_usage_bytes',           help: 'RAM контейнера (bytes) (facultyC)' });
+const containerMemPercent  = new promClient.Gauge({ name: 'facultyC_mem_load',                  help: 'RAM контейнера (%) (facultyC)' });
+const containerNetRxBytes  = new promClient.Gauge({ name: 'facultyC_net_rx_bytes_per_sec',      help: 'Сеть входящая (bytes/sec) (facultyC)' });
+const containerNetTxBytes  = new promClient.Gauge({ name: 'facultyC_net_tx_bytes_per_sec',      help: 'Сеть исходящая (bytes/sec) (facultyC)' });
+const containerDiskRead    = new promClient.Gauge({ name: 'facultyC_disk_read_bytes_per_sec',   help: 'Диск чтение (bytes/sec) (facultyC)' });
+const containerDiskWrite   = new promClient.Gauge({ name: 'facultyC_disk_write_bytes_per_sec',  help: 'Диск запись (bytes/sec) (facultyC)' });
+const containerPids        = new promClient.Gauge({ name: 'facultyC_process_count',             help: 'Количество процессов в контейнере (facultyC)' });
 
 // Nginx (nginx-exporter)
-const nginxConnections     = new promClient.Gauge({ name: 'facultyA_nginx_connections_active',  help: 'Активные соединения Nginx (facultyA)' });
-const nginxRequestsTotal   = new promClient.Gauge({ name: 'facultyA_requests_total',            help: 'Всего запросов (R) (facultyA)' });
-const nginxRps             = new promClient.Gauge({ name: 'facultyA_requests_per_second',       help: 'RPS за последнюю минуту (facultyA)' });
+const nginxConnections     = new promClient.Gauge({ name: 'facultyC_nginx_connections_active',  help: 'Активные соединения Nginx (facultyC)' });
+const nginxRequestsTotal   = new promClient.Gauge({ name: 'facultyC_requests_total',            help: 'Всего запросов (R) (facultyC)' });
+const nginxRps             = new promClient.Gauge({ name: 'facultyC_requests_per_second',       help: 'RPS за последнюю минуту (facultyC)' });
 
 // Books disk / cache (local scan)
-const booksUsedBytes       = new promClient.Gauge({ name: 'facultyA_books_used_bytes',          help: 'Занято в cache/books (bytes) (facultyA)' });
-const booksUsedMb          = new promClient.Gauge({ name: 'facultyA_books_used_mb',             help: 'Занято в cache/books (MB) (facultyA)' });
-const booksUtilPercent     = new promClient.Gauge({ name: 'facultyA_books_util_percent',        help: 'Заполненность cache/books (%) (facultyA)' });
+const booksUsedBytes       = new promClient.Gauge({ name: 'facultyC_books_used_bytes',          help: 'Занято в cache/books (bytes) (facultyC)' });
+const booksUsedMb          = new promClient.Gauge({ name: 'facultyC_books_used_mb',             help: 'Занято в cache/books (MB) (facultyC)' });
+const booksUtilPercent     = new promClient.Gauge({ name: 'facultyC_books_util_percent',        help: 'Заполненность cache/books (%) (facultyC)' });
 
 // Register all metrics
 [
@@ -116,9 +116,9 @@ export async function updateMetrics() {
     containerPids.set(pids);
 
     // 7. Nginx
-    const connections = await query('nginx_connections_active{job="nginx-facultyA"}');
-    const requestsTotal = await query('sum(nginx_http_requests_total{job="nginx-facultyA"})');
-    const rps = await query('rate(nginx_http_requests_total{job="nginx-facultyA"}[1m])');
+    const connections = await query('nginx_connections_active{job="nginx-facultyC"}');
+    const requestsTotal = await query('sum(nginx_http_requests_total{job="nginx-facultyC"})');
+    const rps = await query('rate(nginx_http_requests_total{job="nginx-facultyC"}[1m])');
 
     nginxConnections.set(connections);
     nginxRequestsTotal.set(requestsTotal);
@@ -154,12 +154,12 @@ export async function updateMetrics() {
       const alphaKwh = (CONFIG.energy?.alpha ?? 37000) / 3600000;
       energyTotalKwh.inc(alphaKwh);
       transitionsTotal.inc();
-      console.log(`⚡ FacultyA: edge-activated (λ=${lambda.toFixed(3)}), +${alphaKwh.toFixed(6)} kWh`);
+      console.log(`⚡ FacultyC: edge-activated (λ=${lambda.toFixed(3)}), +${alphaKwh.toFixed(6)} kWh`);
     }
     previousLambda = lambda;
 
   } catch (err) {
-    console.error('facultyA updateMetrics error:', err);
+    console.error('facultyC updateMetrics error:', err);
   }
 }
 
@@ -183,9 +183,9 @@ export async function resetMetrics() {
     ].forEach(g => g.set(0));
 
     previousLambda = 0;
-    console.log('Все метрики FacultyA сброшены');
+    console.log('Все метрики FacultyC сброшены');
   } catch (err) {
-    console.error('FacultyA: error while resetting metrics', err);
+    console.error('FacultyC: error while resetting metrics', err);
     throw err;
   }
 }

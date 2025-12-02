@@ -1,4 +1,4 @@
-// applications/facultyA-manager/src/main.ts
+// applications/facultyC-manager/src/main.ts
 import './monitoring/metrics';
 import { register } from './monitoring/metrics';
 import { resetMetrics } from './monitoring/metrics';
@@ -14,10 +14,10 @@ app.use(cors({
   methods: ['GET', 'POST']
 }));
 
-const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3001;
+const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3003;
 const PROMETHEUS_URL = CONFIG.prometheus?.url || 'http://prometheus:9090';
 
-let baselineRequestsFacultyA = 0;
+let baselineRequestsFacultyC = 0;
 let zeroRpsUntil = 0;
 
 // Health & status
@@ -39,17 +39,17 @@ app.post('/reset-metrics', async (req, res) => {
 
     // Update baseline nginx requests
     try {
-      const total = await promScalar('sum(nginx_http_requests_total{job="nginx-facultyA"})');
-      baselineRequestsFacultyA = total;
+      const total = await promScalar('sum(nginx_http_requests_total{job="nginx-facultyC"})');
+      baselineRequestsFacultyC = total;
       zeroRpsUntil = Date.now() + 5000;
-      console.log('FacultyA: baselineRequestsFacultyA =', baselineRequestsFacultyA);
+      console.log('FacultyC: baselineRequestsFacultyC =', baselineRequestsFacultyC);
     } catch (err) {
-      console.warn('FacultyA: failed to set baselineRequestsFacultyA:', err);
+      console.warn('FacultyC: failed to set baselineRequestsFacultyC:', err);
     }
 
-    res.json({ result: 'ok', msg: 'facultyA metrics reset' });
+    res.json({ result: 'ok', msg: 'facultyC metrics reset' });
   } catch (e: any) {
-    console.error('facultyA reset-metrics error:', e);
+    console.error('facultyC reset-metrics error:', e);
     res.status(500).json({ error: e.message || 'reset failed' });
   }
 });
@@ -75,7 +75,7 @@ app.get('/metrics', async (req, res) => {
 });
 
 // Main endpoint returning consolidated metrics (same format as central)
-app.get('/facultyA-metrics', async (_req, res) => {
+app.get('/facultyC-metrics', async (_req, res) => {
   try {
     const [
       eTotal,
@@ -98,30 +98,30 @@ app.get('/facultyA-metrics', async (_req, res) => {
       booksUtil,
       transitions
     ] = await Promise.all([
-      promScalar('facultyA_energy_kwh'),
-      promScalar('facultyA_power_watts'),
-      promScalar('facultyA_load_lambda'),
-      promScalar('facultyA_host_cpu_percent'),
-      promScalar('facultyA_cpu_load'), // container CPU %
-      promScalar('facultyA_mem_usage_bytes'),
-      promScalar('facultyA_mem_load'),
-      promScalar(`rate(docker_network_received_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
-      promScalar(`rate(docker_network_transmit_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
-      promScalar(`rate(docker_io_read_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
-      promScalar(`rate(docker_io_write_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
-      promScalar(`docker_process_pids_count{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}`),
-      promScalar('facultyA_nginx_connections_active'),
-      promScalar('facultyA_requests_total'), // Gauge from metrics server
-      promScalar('facultyA_requests_per_second'),
-      promScalar('facultyA_books_used_bytes'),
-      promScalar('facultyA_books_used_mb'),
-      promScalar('facultyA_books_util_percent'),
-      promScalar('facultyA_transitions_total')
+      promScalar('facultyC_energy_kwh'),
+      promScalar('facultyC_power_watts'),
+      promScalar('facultyC_load_lambda'),
+      promScalar('facultyC_host_cpu_percent'),
+      promScalar('facultyC_cpu_load'), // container CPU %
+      promScalar('facultyC_mem_usage_bytes'),
+      promScalar('facultyC_mem_load'),
+      promScalar(`rate(docker_network_received_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyC-nginx'}"}[1m])`),
+      promScalar(`rate(docker_network_transmit_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyC-nginx'}"}[1m])`),
+      promScalar(`rate(docker_io_read_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyC-nginx'}"}[1m])`),
+      promScalar(`rate(docker_io_write_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyC-nginx'}"}[1m])`),
+      promScalar(`docker_process_pids_count{containerName="${CONFIG.metrics?.containerName || 'facultyC-nginx'}"}`),
+      promScalar('facultyC_nginx_connections_active'),
+      promScalar('facultyC_requests_total'), // Gauge from metrics server
+      promScalar('facultyC_requests_per_second'),
+      promScalar('facultyC_books_used_bytes'),
+      promScalar('facultyC_books_used_mb'),
+      promScalar('facultyC_books_util_percent'),
+      promScalar('facultyC_transitions_total')
     ]);
 
     // Protect against immediate noise after reset
     const rps = Date.now() < zeroRpsUntil ? 0 : Number(rpsRaw.toFixed(2));
-    const requestsSinceReset = Math.max(0, requestsTotalRaw - baselineRequestsFacultyA);
+    const requestsSinceReset = Math.max(0, requestsTotalRaw - baselineRequestsFacultyC);
 
     res.json({
       // Energy & Eco Index
@@ -165,8 +165,8 @@ app.get('/facultyA-metrics', async (_req, res) => {
       timestamp: new Date().toISOString()
     });
   } catch (e: any) {
-    console.error('/facultyA-metrics error:', e?.message || e);
-    res.status(500).json({ error: 'failed to fetch facultyA metrics' });
+    console.error('/facultyC-metrics error:', e?.message || e);
+    res.status(500).json({ error: 'failed to fetch facultyC metrics' });
   }
 });
 
@@ -178,20 +178,20 @@ app.get('/prom-query', async (req, res) => {
     const promRes = await axios.get(`${PROMETHEUS_URL}/api/v1/query?query=${encodeURIComponent(query)}`);
     res.json(promRes.data);
   } catch (e) {
-    console.error('Prom proxy error (facultyA):', e);
+    console.error('Prom proxy error (facultyC):', e);
     res.status(500).json({ error: 'Prom query failed' });
   }
 });
 
 // Prefetch stub
 app.post('/trigger-prefetch', async (req, res) => {
-  console.log('Prefetch triggered (facultyA) opts=', req.body || {});
+  console.log('Prefetch triggered (facultyC) opts=', req.body || {});
   res.json({ result: 'ok', msg: 'prefetch triggered (stub)' });
 });
 
 const server = app.listen(CONTROL_PORT, () => {
-  console.log(`Faculty A control API listening on ${CONTROL_PORT}`);
-  console.log(`   → http://localhost:${CONTROL_PORT}/facultyA-metrics — all metrics JSON`);
+  console.log(`Faculty C control API listening on ${CONTROL_PORT}`);
+  console.log(`   → http://localhost:${CONTROL_PORT}/facultyC-metrics — all metrics JSON`);
 });
 
 process.on('SIGINT', () => server.close(() => process.exit(0)));

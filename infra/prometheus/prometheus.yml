@@ -2,13 +2,9 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: 'central-node'
+  - job_name: 'host-node'
     static_configs:
-      - targets: ['node-exporter-central:9100']          
-
-  - job_name: 'facultyA-node'
-    static_configs:
-      - targets: ['node-exporter-facultyA:9100']         
+      - targets: ['node-exporter-host:9100']          
 
   - job_name: 'nginx-central'
     static_configs:
@@ -16,7 +12,23 @@ scrape_configs:
 
   - job_name: 'nginx-facultyA'
     static_configs:
-      - targets: ['nginx-exporter-facultyA:9113']        
+      - targets: ['nginx-exporter-facultyA:9113']  
+
+  - job_name: 'nginx-facultyB'
+    static_configs:
+      - targets: ['nginx-exporter-facultyB:9113']      
+
+  - job_name: 'nginx-facultyC'
+    static_configs:
+      - targets: ['nginx-exporter-facultyC:9113']  
+
+  - job_name: 'nginx-facultyD'
+    static_configs:
+      - targets: ['nginx-exporter-facultyD:9113'] 
+
+  - job_name: 'nginx-facultyE'
+    static_configs:
+      - targets: ['nginx-exporter-facultyE:9113'] 
 
   - job_name: 'central-custom'
     static_configs:
@@ -24,7 +36,23 @@ scrape_configs:
 
   - job_name: 'facultyA-custom'
     static_configs:
-      - targets: ['facultyA-edge:3002']                         
+      - targets: ['facultyA-edge:3001']  
+
+  - job_name: 'facultyB-custom'
+    static_configs:
+      - targets: ['facultyB-edge:3002']   
+
+  - job_name: 'facultyC-custom'
+    static_configs:
+      - targets: ['facultyC-edge:3003']   
+
+  - job_name: 'facultyD-custom'
+    static_configs:
+      - targets: ['facultyD-edge:3004']  
+
+  - job_name: 'facultyE-custom'
+    static_configs:
+      - targets: ['facultyE-edge:3005']                    
 
   - job_name: 'logporter'
     scrape_interval: 5s                                 

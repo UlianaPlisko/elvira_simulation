@@ -1,7 +1,14 @@
-// src/components/EcoIndexCard.tsx
+// components/EcoIndexCard.tsx
 import { Card, CardContent, Typography, LinearProgress } from '@mui/material';
 import { useEffect, useState } from 'react';
-import { getCentralMetrics, getFacultyAMetrics } from '../services/api';
+import { 
+  getCentralMetrics, 
+  getFacultyAMetrics, 
+  getFacultyBMetrics,
+  getFacultyCMetrics,
+  getFacultyDMetrics,
+  getFacultyEMetrics 
+} from '../services/api';
 
 export default function EcoIndexCard() {
   const [totalEI, setTotalEI] = useState<number>(0);
@@ -12,7 +19,7 @@ export default function EcoIndexCard() {
     totalR: 0,
     t: 0,
     central_mb: 0,
-    faculty_mb: 0
+    faculties_mb: 0
   });
 
   useEffect(() => {
@@ -20,41 +27,75 @@ export default function EcoIndexCard() {
 
     const fetchAndCompute = async () => {
       try {
-        const [centralRes, facultyRes] = await Promise.all([getCentralMetrics(), getFacultyAMetrics()]);
+        const [centralRes, facultyARes, facultyBRes, facultyCRes, facultyDRes, facultyERes] = await Promise.all([
+          getCentralMetrics(),
+          getFacultyAMetrics(),
+          getFacultyBMetrics(),
+          getFacultyCMetrics(),
+          getFacultyDMetrics(),
+          getFacultyEMetrics()
+        ]);
 
         const central = centralRes.data || {};
-        const faculty = facultyRes.data || {};
+        const facultyA = facultyARes.data || {};
+        const facultyB = facultyBRes.data || {};
+        const facultyC = facultyCRes.data || {};
+        const facultyD = facultyDRes.data || {};
+        const facultyE = facultyERes.data || {};
 
-        // console.log('Central metrics:', central);
-        // console.log('FacultyA metrics:', faculty);
+        // ========== ЭНЕРГИЯ ==========
+        const centralE = Number(central.eTotal ?? 0);
+        const totalE = centralE 
+          + Number(facultyA.eTotal ?? 0)
+          + Number(facultyB.eTotal ?? 0)
+          + Number(facultyC.eTotal ?? 0)
+          + Number(facultyD.eTotal ?? 0)
+          + Number(facultyE.eTotal ?? 0);
 
-        // Energy
-        const centralE = Number(central.eTotal || 0);
-        const facultyE = Number(faculty.eTotal || 0);
-        const totalE = centralE + facultyE;
+        // ========== ЗАПРОСЫ ==========
+        const centralR = Number(central.requestsSinceReset ?? central.requestsTotal ?? 0);
+        const totalR = centralR
+          + Number(facultyA.requestsSinceReset ?? facultyA.requestsTotal ?? 0)
+          + Number(facultyB.requestsSinceReset ?? facultyB.requestsTotal ?? 0)
+          + Number(facultyC.requestsSinceReset ?? facultyC.requestsTotal ?? 0)
+          + Number(facultyD.requestsSinceReset ?? facultyD.requestsTotal ?? 0)
+          + Number(facultyE.requestsSinceReset ?? facultyE.requestsTotal ?? 0);
 
-        // Requests since reset (use requestsSinceReset field from backends)
-        const centralR = Number(central.requestsSinceReset || 0);
-        const facultyR = Number(faculty.requestsSinceReset || 0);
-        const totalR = centralR + facultyR;
+        // ========== ИСПОЛЬЗОВАНИЕ КЭША (U %) ==========
+        const uCentral = Number(central.booksUtilPercent ?? 0);
+        const uA = Number(facultyA.booksUtilPercent ?? 0);
+        const uB = Number(facultyB.booksUtilPercent ?? 0);
+        const uC = Number(facultyC.booksUtilPercent ?? 0);
+        const uD = Number(facultyD.booksUtilPercent ?? 0);
+        const uE = Number(facultyE.booksUtilPercent ?? 0);
 
-        // Books utilization percent (booksUtilPercent) and MB (booksUsedMb)
-        const uCentralPercent = Number(central.booksUtilPercent ?? central.booksUtilPercent) || 0;
-        const uFacultyPercent = Number(faculty.booksUtilPercent ?? faculty.booksUtilPercent) || 0;
-        const avgU = (uCentralPercent + uFacultyPercent) / ( ( (uCentralPercent || uFacultyPercent) === 0 ) ? 1 : 2 );
+        const uValues = [uCentral, uA, uB, uC, uD, uE].filter(v => v > 0);
+        const avgU = uValues.length ? uValues.reduce((s, v) => s + v, 0) / uValues.length : 0;
 
-        const uCentralMb = Number(central.booksUsedMb || 0);
-        const uFacultyMb = Number(faculty.booksUsedMb || 0);
+        // ========== МБ КЭША ==========
+        const centralMb = Number(central.booksUsedMb ?? 0);
+        const facultiesMb = 
+            Number(facultyA.booksUsedMb ?? 0) +
+            Number(facultyB.booksUsedMb ?? 0) +
+            Number(facultyC.booksUsedMb ?? 0) +
+            Number(facultyD.booksUsedMb ?? 0) +
+            Number(facultyE.booksUsedMb ?? 0);
 
-        // Simulation hours (t) — prefer central if present
-        const t = Number(central.simulationHours ?? faculty.simulationHours ?? 0);
+        // ========== ВРЕМЯ СИМУЛЯЦИИ ==========
+        const t = Number(
+          central.simulationHours ??
+          facultyA.simulationHours ??
+          facultyB.simulationHours ??
+          facultyC.simulationHours ??
+          facultyD.simulationHours ??
+          facultyE.simulationHours ??
+          0
+        );
 
-        // Eco Index calculation (protect against division by zero)
-        const denom = (totalR * t) || 1;
-        const ei = denom === 0 ? 0 : (totalE * (1 - (avgU / 100))) / denom;
-
-        const carbonFactor = 0.5; // your factor
-        const co2 = ei * carbonFactor;
+        // ========== ECO-INDEX ==========
+        const denom = totalR * t || 1;
+        const ei = totalE * (1 - avgU / 100) / denom;
+        const co2 = ei * 0.5;
 
         if (!mounted) return;
 
@@ -65,9 +106,10 @@ export default function EcoIndexCard() {
           avgU,
           totalR,
           t,
-          central_mb: uCentralMb,
-          faculty_mb: uFacultyMb
+          central_mb: centralMb,
+          faculties_mb: facultiesMb
         });
+
       } catch (err) {
         console.error('EcoIndex fetch error:', err);
       }
@@ -75,27 +117,33 @@ export default function EcoIndexCard() {
 
     fetchAndCompute();
     const id = setInterval(fetchAndCompute, 5000);
-    return () => { mounted = false; clearInterval(id); };
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
   }, []);
 
   return (
     <Card sx={{ boxShadow: 3, borderRadius: 2 }}>
       <CardContent>
         <Typography variant="h3" color="primary" sx={{ mt: 1 }}>
-          {Number(totalEI).toFixed(6)}
+          {totalEI.toFixed(6)}
         </Typography>
 
-        <Typography variant="body2" sx={{ mt: 1 }}>
-          Total Energy: <strong>{Number(summary.totalEnergy).toFixed(6)} kWh</strong><br />
-          Total CO₂: <strong>{Number(totalCO2).toFixed(6)} kg</strong><br />
-          Avg U (Books %): <strong>{Number(summary.avgU).toFixed(3)}%</strong> | Central: <strong>{Number(summary.central_mb).toFixed(3)} MB</strong> | Faculty: <strong>{Number(summary.faculty_mb).toFixed(3)} MB</strong><br />
-          Total R (since reset): <strong>{summary.totalR}</strong> | T (sim hours): <strong>{summary.t}</strong>
+        <Typography variant="body2" sx={{ mt: 1, lineHeight: 1.8 }}>
+          Total Energy: <strong>{summary.totalEnergy.toFixed(6)} kWh</strong><br />
+          Total CO₂: <strong>{totalCO2.toFixed(6)} kg</strong><br />
+          Avg Cache Utilization: <strong>{summary.avgU.toFixed(2)}%</strong><br />
+          Cache → Central: <strong>{summary.central_mb.toFixed(1)} MB</strong> | 
+          Faculties (A+B+C+D+E): <strong>{summary.faculties_mb.toFixed(1)} MB</strong><br />
+          Requests since reset: <strong>{summary.totalR.toLocaleString()}</strong> | 
+          Simulation time: <strong>{summary.t.toFixed(2)} h</strong>
         </Typography>
 
         <LinearProgress
           variant="determinate"
-          value={Math.max(0, Math.min(100, Number(summary.avgU)))}
-          sx={{ mt: 2, height: 10, borderRadius: 2 }}
+          value={Math.min(100, summary.avgU)}
+          sx={{ mt: 2, height: 12, borderRadius: 2 }}
         />
       </CardContent>
     </Card>
