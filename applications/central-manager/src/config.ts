@@ -16,7 +16,9 @@ const CONFIG = {
   prometheus: {
     url: 'http://172.20.0.5:9090' // optional - defaults to the value already used
   },
-  metrics: {selector: 'container_label_com_docker_compose_service="central-nginx"'},
+  metrics: {
+  containerName: "central-nginx" 
+  },
   cache: {maxSizeBytes: 500 * 1024 * 1024}
 } as const;
 

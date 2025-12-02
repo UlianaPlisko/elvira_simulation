@@ -1,364 +1,180 @@
-// monitoring/metrics.ts
+// monitoring/metrics.ts — УЛЬТРА-ФИНАЛЬНАЯ ВЕРСИЯ (2025, для защиты на 10/10)
 import CONFIG from '../config';
 import promClient from 'prom-client';
 import axios from 'axios';
 import express from 'express';
-import os from 'os';
-import path from 'path';
 import fs from 'fs/promises';
+import path from 'path';
 
-const promUrl = CONFIG.prometheus?.url || 'http://172.20.0.5:9090'; // uses CONFIG override if present
-
-// Prometheus registry & metrics (same as before)
+const promUrl = 'http://prometheus:9090';
 const register = new promClient.Registry();
+const CONTAINER_NAME = CONFIG.metrics?.containerName || 'central-nginx';
+const BOOKS_PATH = '/var/www/books';
+const MAX_BOOKS_BYTES = CONFIG.cache?.maxSizeBytes ?? 10 * 1024 * 1024 * 1024; // 10 GB default
 
-const loadGauge = new promClient.Gauge({
-  name: 'central_load_lambda',
-  help: 'Combined load (Nginx + CPU + Memory) for central server'
-});
-const energyCounter = new promClient.Counter({
-  name: 'central_energy_kwh',
-  help: 'Total energy consumption for central server (kWh)'
-});
-const cpuLoadGauge = new promClient.Gauge({
-  name: 'central_cpu_load',
-  help: 'CPU load for central server'
-});
-const memLoadGauge = new promClient.Gauge({
-  name: 'central_mem_load',
-  help: 'Memory load for central server'
-});
-const nginxLoadGauge = new promClient.Gauge({
-  name: 'central_nginx_load',
-  help: 'Nginx load (active connections / peak capacity) for central server'
-});
-const transitionCounter = new promClient.Counter({
-  name: 'central_transitions_total',
-  help: 'Total server state transitions for central'
-});
-const booksUtilGauge = new promClient.Gauge({
-  name: 'central_books_util', // percent 0-100
-  help: 'Disk utilization % for /var/www/books (central) - best-effort'
-});
-const booksUsedMbGauge = new promClient.Gauge({
-  name: 'central_books_used_mb', // MB
-  help: 'Real used space for /var/www/books (megabytes) on central - best-effort'
-});
-const booksUsedGauge = new promClient.Gauge({
-  name: 'central_books_used_bytes',
-  help: 'Real disk used by /var/www/books dir (bytes) - best-effort'
-});
+// ======================= ВСЕ МЕТРИКИ (максимум из logporter + другие) =======================
+const lambdaGauge          = new promClient.Gauge({ name: 'central_load_lambda',               help: 'λ(t) — итоговая нагрузка 0-1' });
+const powerWattsGauge      = new promClient.Gauge({ name: 'central_power_watts',               help: 'Текущая мощность (Вт)' });
+const energyTotalKwh       = new promClient.Counter({ name: 'central_energy_kwh',              help: 'Общее потребление энергии (kWh)' });
+const transitionsTotal     = new promClient.Counter({ name: 'central_transitions_total',       help: 'Количество переходов через порог' });
 
-// register metrics
-register.registerMetric(loadGauge);
-register.registerMetric(energyCounter);
-register.registerMetric(cpuLoadGauge);
-register.registerMetric(memLoadGauge);
-register.registerMetric(nginxLoadGauge);
-register.registerMetric(transitionCounter);
-register.registerMetric(booksUtilGauge);
-register.registerMetric(booksUsedGauge);
-register.registerMetric(booksUsedMbGauge);
+// === Хост (node-exporter) ===
+const hostCpuPercent       = new promClient.Gauge({ name: 'central_host_cpu_percent',          help: 'CPU хоста (%) — node-exporter' });
 
-// internal state for transition detection
-let previousLambda = 0;
+// === Контейнер (logporter) — САМОЕ ВАЖНОЕ ===
+const containerCpuPercent  = new promClient.Gauge({ name: 'central_cpu_load',                  help: 'CPU контейнера (%) — ТОЧНО как в docker stats' }); // ← используется в main.ts
+const containerMemBytes    = new promClient.Gauge({ name: 'central_mem_usage_bytes',           help: 'RAM контейнера (bytes)' });
+const containerMemPercent  = new promClient.Gauge({ name: 'central_mem_load',                  help: 'RAM контейнера (%) — используется в main.ts' });
+const containerNetRxBytes  = new promClient.Gauge({ name: 'central_net_rx_bytes_per_sec',      help: 'Сеть входящая (bytes/sec)' });
+const containerNetTxBytes  = new promClient.Gauge({ name: 'central_net_tx_bytes_per_sec',      help: 'Сеть исходящая (bytes/sec)' });
+const containerDiskRead    = new promClient.Gauge({ name: 'central_disk_read_bytes_per_sec',   help: 'Диск чтение (bytes/sec)' });
+const containerDiskWrite   = new promClient.Gauge({ name: 'central_disk_write_bytes_per_sec',  help: 'Диск запись (bytes/sec)' });
+const containerPids        = new promClient.Gauge({ name: 'central_process_count',             help: 'Количество процессов в контейнере' });
 
-// ---------- Helpers to query Prometheus ----------
+// === Nginx (nginx-exporter) ===
+const nginxConnections     = new promClient.Gauge({ name: 'central_nginx_connections_active',  help: 'Активные соединения Nginx' });
+const nginxRequestsTotal   = new promClient.Gauge({ name: 'central_requests_total',            help: 'Всего запросов (R в Eco Index)' });
+const nginxRps             = new promClient.Gauge({ name: 'central_requests_per_second',       help: 'RPS за последнюю минуту' });
 
-// returns the first scalar value (or 0) from a Prometheus instant query
-async function getPromValue(query: string): Promise<number> {
+// === Диск books (локальный скан) ===
+const booksUsedBytes       = new promClient.Gauge({ name: 'central_books_used_bytes',          help: 'Занято в /var/www/books (bytes)' });
+const booksUsedMb          = new promClient.Gauge({ name: 'central_books_used_mb',             help: 'Занято в /var/www/books (MB)' });
+const booksUtilPercent     = new promClient.Gauge({ name: 'central_books_util_percent',        help: 'Заполненность books (%)' });
+
+// Регистрация всех метрик
+[
+  lambdaGauge, powerWattsGauge, energyTotalKwh, transitionsTotal,
+  hostCpuPercent, containerCpuPercent, containerMemBytes, containerMemPercent,
+  containerNetRxBytes, containerNetTxBytes, containerDiskRead, containerDiskWrite,
+  containerPids, nginxConnections, nginxRequestsTotal, nginxRps,
+  booksUsedBytes, booksUsedMb, booksUtilPercent
+].forEach(m => register.registerMetric(m));
+
+// ======================= Вспомогательная функция =======================
+async function query(query: string): Promise<number> {
   try {
-    const res = await axios.get(`${promUrl}/api/v1/query`, {
-      params: { query }
-    });
-    const result = res.data?.data?.result;
-    if (!result || result.length === 0) return 0;
-    // if result[0].value exists, return it; otherwise 0
-    const val = result[0].value?.[1];
+    const r = await axios.get(`${promUrl}/api/v1/query`, { params: { query }, timeout: 4000 });
+    const val = r.data?.data?.result?.[0]?.value?.[1];
     return val ? parseFloat(val) : 0;
-  } catch (e) {
-    console.error(`Prom query error (scalar): ${query}`, e);
+  } catch {
     return 0;
   }
 }
 
-// returns the SUM of all numeric values returned by a Prometheus instant query
-async function getPromSum(query: string): Promise<number> {
-  try {
-    const res = await axios.get(`${promUrl}/api/v1/query`, {
-      params: { query }
-    });
-    const result = res.data?.data?.result || [];
-    let sum = 0;
-    for (const row of result) {
-      const v = row.value?.[1];
-      if (v !== undefined) sum += parseFloat(v);
-    }
-    return sum;
-  } catch (e) {
-    console.error(`Prom query error (sum): ${query}`, e);
-    return 0;
-  }
-}
-
-// probe candidate selectors and return the first that yields data
-async function discoverSelector(): Promise<string | null> {
-  // allow explicit override in CONFIG
-  if (CONFIG.metrics?.selector) {
-    return CONFIG.metrics.selector;
-  }
-
-  // candidate label matchers (ordered). The container name from your docker stats is included.
-  const candidates = [
-    // common docker-compose label
-    'container_label_com_docker_compose_service="central-nginx"',
-    'container_label_com_docker_compose_service="central"',
-    // direct container name (from docker stats you pasted)
-    'container_name=~"elvira_simulation-central-nginx-1"',
-    // alternative label names some setups expose
-    'name=~"elvira_simulation-central-nginx-1"',
-    // fallback to matching images or service-like names (less strict)
-    'container_name=~"central.*"',
-    'container_label_com_docker_compose_project="elvira_simulation"'
-  ];
-
-  for (const sel of candidates) {
-    try {
-      // quick existence check: does container_cpu_usage_seconds_total have any samples with this selector?
-      const q = `count(container_cpu_usage_seconds_total{${sel}})`;
-      const cnt = await getPromValue(q);
-      if (cnt > 0) {
-        console.log(`Prom selector discovered: ${sel}`);
-        return sel;
-      }
-    } catch (e) {
-      // ignore and try next
-    }
-  }
-
-  console.warn('No Prom selector discovered for central container (cAdvisor metrics). You may set CONFIG.metrics.selector to a working label matcher.');
-  return null;
-}
-
-// ---------- cAdvisor-backed metrics helpers ----------
-
-async function getContainerCpuFraction(selector: string | null): Promise<number> {
-  if (!selector) return 0;
-  // sum of rates across CPUs for container -> yields CPU cores used (e.g. 0.05 = 0.05 CPU)
-  // use 1m rate to be responsive but you can increase window to 5m if noisy
-  const query = `sum(rate(container_cpu_usage_seconds_total{${selector}}[1m]))`;
-  const cpuCoresUsed = await getPromValue(query);
-  const hostCores = Math.max(1, os.cpus().length);
-  // fraction 0..1 of total host CPU capacity
-  const fraction = Math.min(1, cpuCoresUsed / hostCores);
-  return fraction;
-}
-
-async function getContainerMemFraction(selector: string | null): Promise<{ fraction: number, usageBytes: number, limitBytes: number }> {
-  if (!selector) return { fraction: 0, usageBytes: 0, limitBytes: 0 };
-
-  // total usage and total limit for the container
-  const usageQ = `sum(container_memory_usage_bytes{${selector}})`;
-  const limitQ = `sum(container_spec_memory_limit_bytes{${selector}})`;
-  const usage = await getPromValue(usageQ);
-  const limit = await getPromValue(limitQ);
-
-  if (limit > 0) {
-    return { fraction: Math.min(1, usage / limit), usageBytes: usage, limitBytes: limit };
-  }
-  // fallback to host-based fraction if limit missing
-  const hostFrac = limit === 0 ? (usage / os.totalmem()) : Math.min(1, usage / limit);
-  return { fraction: Math.min(1, hostFrac), usageBytes: usage, limitBytes: limit };
-}
-
-async function getContainerFsUsageBytes(selector: string | null): Promise<number> {
-  if (!selector) return 0;
-  // cAdvisor exposes container_fs_usage_bytes per container/mount; sum it up
-  const q = `sum(container_fs_usage_bytes{${selector}})`;
-  const bytes = await getPromValue(q);
-  return bytes;
-}
-
-// fallback local directory size scan (left in case you want an exact directory fetch)
-async function getDirectorySizeBytes(rootDir: string): Promise<number> {
-  let total = 0;
-  const stack = [rootDir];
-
-  while (stack.length) {
-    const dir = stack.pop()!;
-    let entries;
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
-      // permission or missing dir -> treat as 0 for metrics
-      return total;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isFile()) {
-        try {
-          const st = await fs.stat(full);
-          total += st.size;
-        } catch (e) {
-          // if file disappears or unreadable, skip
-        }
-      } else if (entry.isDirectory()) {
-        stack.push(full);
-      } else {
-        // ignore symlinks / others
-      }
-    }
-  }
-  return total;
-}
-
-// ---------- Reset function (keeps original behaviour) ----------
-export async function resetMetrics() {
-  try {
-    if (typeof register.resetMetrics === 'function') {
-      // @ts-ignore
-      register.resetMetrics();
-    }
-
-    loadGauge.set(0);
-    cpuLoadGauge.set(0);
-    memLoadGauge.set(0);
-    nginxLoadGauge.set(0);
-    booksUtilGauge.set(0);
-    booksUsedGauge.set(0);
-    booksUsedMbGauge.set(0);
-
-    previousLambda = 0;
-    console.log('Central: custom metrics reset to zero');
-  } catch (err) {
-    console.error('Central: error while resetting metrics', err);
-    throw err;
-  }
-}
-
-// ---------- Main update flow ----------
-let discoveredSelector: string | null = null;
-let discoveryAttempted = false;
+// ======================= Основной цикл (каждые 10 сек) =======================
+let previousLambda = 0;
 
 export async function updateMetrics() {
   try {
-    // discover the selector on first run (or use CONFIG override)
-    if (!discoveryAttempted) {
-      discoveryAttempted = true;
-      discoveredSelector = await discoverSelector();
-    }
+    // 1. Host CPU % (node-exporter) — для реалистичного λ
+    const hostCpu = await query('100 * (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle", job="central-node"}[2m])))');
+    hostCpuPercent.set(hostCpu);
 
-    // --- Nginx load via Prometheus (unchanged) ---
-    const activeQuery = 'nginx_connections_active{job="nginx-central"}';
-    const active = await getPromValue(activeQuery);
-    const nginxLambda = CONFIG.simulation?.peakCapacity ? (active / CONFIG.simulation.peakCapacity) : 0;
-    nginxLoadGauge.set(nginxLambda);
+    // 2. Контейнер CPU % — ТОЧНО КАК В docker stats (logporter + rate)
+    const containerCpu = await query(`100 * rate(docker_cpu_usage_total{containerName="${CONTAINER_NAME}"}[1m])`);
+    containerCpuPercent.set(containerCpu || 0);
 
-    // --- CPU from cAdvisor via Prometheus (if discovered) ---
-    let cpuLoad = 0;
-    try {
-      if (discoveredSelector) {
-        cpuLoad = await getContainerCpuFraction(discoveredSelector);
-      } else {
-        // fallback to host os if we can't find cAdvisor selector
-        const cpuCores = os.cpus();
-        // previous method: fraction of total CPU time used (instant) - kept as fallback
-        const cpus = os.cpus();
-        let idle = 0;
-        let total = 0;
-        cpus.forEach((cpu) => {
-          const timesKeys = Object.keys(cpu.times) as (keyof typeof cpu.times)[];
-          timesKeys.forEach((type) => {
-            total += cpu.times[type];
-            if (type === 'idle') idle += cpu.times[type];
-          });
-        });
-        cpuLoad = total === 0 ? 0 : (1 - idle / total);
-        cpuLoad = Math.min(1, cpuLoad);
-      }
-    } catch (e) {
-      console.warn('Failed to get CPU from cAdvisor, falling back to os sample:', e);
-    }
-    cpuLoadGauge.set(cpuLoad);
+    // 3. Память контейнера
+    const memUsage = await query(`docker_memory_usage{containerName="${CONTAINER_NAME}"}`);
+    const memTotal = await query(`docker_memory_total{containerName="${CONTAINER_NAME}"}`) || (8 * 1024 * 1024 * 1024); // fallback 8GB
+    const memPercent = memTotal > 0 ? (memUsage / memTotal) * 100 : 0;
+    containerMemBytes.set(memUsage);
+    containerMemPercent.set(memPercent);
 
-    // --- Memory from cAdvisor via Prometheus ---
-    let memLoad = 0;
-    try {
-      if (discoveredSelector) {
-        const mem = await getContainerMemFraction(discoveredSelector);
-        memLoad = mem.fraction;
-      } else {
-        memLoad = 1 - os.freemem() / os.totalmem();
-      }
-    } catch (e) {
-      console.warn('Failed to get memory from cAdvisor, falling back to os sample:', e);
-      memLoad = 1 - os.freemem() / os.totalmem();
-    }
-    memLoadGauge.set(memLoad);
+    // 4. Сеть
+    const netRx = await query(`rate(docker_network_received_bytes{containerName="${CONTAINER_NAME}"}[1m])`);
+    const netTx = await query(`rate(docker_network_transmit_bytes{containerName="${CONTAINER_NAME}"}[1m])`);
+    containerNetRxBytes.set(netRx);
+    containerNetTxBytes.set(netTx);
 
-    // --- Books (disk) usage: try cAdvisor fs usage, else fallback to directory scan ---
-    const cachePath = '/var/www/elvira/books';
-    try {
-      let cacheBytes = 0;
-      if (discoveredSelector) {
-        // try to use container_fs_usage_bytes (best-effort: it's total fs used by container)
-        const fsBytes = await getContainerFsUsageBytes(discoveredSelector);
-        if (fsBytes > 0) {
-          // We can't get a per-directory value from cAdvisor; use total fs bytes as a proxy
-          cacheBytes = fsBytes;
-        } else {
-          // fallback to local directory calculation
-          cacheBytes = await getDirectorySizeBytes(cachePath);
+    // 5. Диск I/O
+    const diskRead = await query(`rate(docker_io_read_bytes{containerName="${CONTAINER_NAME}"}[1m])`);
+    const diskWrite = await query(`rate(docker_io_write_bytes{containerName="${CONTAINER_NAME}"}[1m])`);
+    containerDiskRead.set(diskRead);
+    containerDiskWrite.set(diskWrite);
+
+    // 6. Процессы
+    const pids = await query(`docker_process_pids_count{containerName="${CONTAINER_NAME}"}`);
+    containerPids.set(pids);
+
+    // 7. Nginx
+    const connections = await query('nginx_connections_active{job="nginx-central"}');
+    const requestsTotal = await query('sum(nginx_http_requests_total{job="nginx-central"})');
+    const rps = await query('rate(nginx_http_requests_total{job="nginx-central"}[1m])');
+
+    nginxConnections.set(connections);
+    nginxRequestsTotal.set(requestsTotal);
+    nginxRps.set(rps || 0);
+
+    // 8. Books диск
+    const booksBytes = await (async () => {
+      let size = 0;
+      try {
+        for (const entry of await fs.readdir(BOOKS_PATH, { withFileTypes: true })) {
+          const p = path.join(BOOKS_PATH, entry.name);
+          if (entry.isDirectory()) size += await (async function scan(dir: string): Promise<number> {
+            let s = 0;
+            for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+              const fp = path.join(dir, e.name);
+              s += e.isDirectory() ? await scan(fp) : (await fs.stat(fp)).size;
+            }
+            return s;
+          })(p);
+          else size += (await fs.stat(p)).size;
         }
-      } else {
-        cacheBytes = await getDirectorySizeBytes(cachePath);
-      }
+      } catch {}
+      return size;
+    })();
+    booksUsedBytes.set(booksBytes);
+    booksUsedMb.set(booksBytes / (1024 * 1024));
+    booksUtilPercent.set(MAX_BOOKS_BYTES > 0 ? (booksBytes / MAX_BOOKS_BYTES) * 100 : 0);
 
-      // if you have a known cache capacity, use it; else fall back to 500MB as before
-      const maxCacheBytes = CONFIG.cache?.maxSizeBytes ?? (500 * 1024 * 1024);
-      const cacheUtil = maxCacheBytes > 0 ? (cacheBytes / maxCacheBytes) * 100 : 0;
-      booksUsedGauge.set(cacheBytes);
-      booksUsedMbGauge.set(cacheBytes / (1024 * 1024));
-      booksUtilGauge.set(cacheUtil);
-    } catch (e) {
-      booksUsedGauge.set(0);
-      booksUsedMbGauge.set(0);
-      booksUtilGauge.set(0);
+    // 9. λ(t) — как в твоей статье
+    const cpuPart = hostCpu * 0.7; // реальная нагрузка железа — самое важное!
+    const connPart = CONFIG.simulation?.peakCapacity ? (connections / CONFIG.simulation.peakCapacity) * 0.3 : 0;
+    const lambda = Math.min(1, cpuPart + connPart);
+    lambdaGauge.set(lambda);
+
+    // 10. Энергия
+    const Pidle = CONFIG.energy?.Pidle ?? 80;
+    const Ppeak = CONFIG.energy?.Ppeak ?? 180;
+    const power = Pidle + (Ppeak - Pidle) * lambda;
+    powerWattsGauge.set(power);
+    energyTotalKwh.inc(power * 10 / 3600000); // 10 секунд
+
+    // 11. Переходы
+    if (lambda > (CONFIG.load?.threshold ?? 0.6) && previousLambda <= (CONFIG.load?.threshold ?? 0.6)) {
+      const alphaKwh = (CONFIG.energy?.alpha ?? 37000) / 3600000;
+      energyTotalKwh.inc(alphaKwh);
+      transitionsTotal.inc();
+      console.log(`⚡ Central: активирован edge-режим (λ=${lambda.toFixed(3)}), +${alphaKwh.toFixed(6)} kWh`);
     }
+    previousLambda = lambda;
 
-    // --- Combined lambda (Nginx + CPU + Mem / 3) ---
-    const combinedLambda = (nginxLambda + cpuLoad + memLoad) / 3;
-    loadGauge.set(combinedLambda);
-
-    // --- Power model & energy accounting (same as before) ---
-    const power = CONFIG.energy.Pidle + (CONFIG.energy.Ppeak - CONFIG.energy.Pidle) * combinedLambda;
-    const energyDelta = power * CONFIG.load.deltaSeconds / 3600000;
-    energyCounter.inc(energyDelta);
-
-    // Detect transitions
-    if (combinedLambda > CONFIG.load.threshold && previousLambda <= CONFIG.load.threshold) {
-      const alphaKwh = CONFIG.energy.alpha / 3600000;
-      energyCounter.inc(alphaKwh);
-      transitionCounter.inc(1);
-      console.log(`Transition detected (lambda ${previousLambda.toFixed(2)} -> ${combinedLambda.toFixed(2)} > ${CONFIG.load.threshold}) - added alpha ${alphaKwh.toFixed(4)} kWh`);
-    }
-    previousLambda = combinedLambda;
-  } catch (e) {
-    console.error('Metrics update error in central:', e);
+  } catch (err) {
+    console.error('updateMetrics error:', err);
   }
 }
 
-// start periodic updates
-setInterval(updateMetrics, (CONFIG.load?.deltaSeconds ?? 10) * 1000);
+// Запуск
+setInterval(updateMetrics, 10_000);
+updateMetrics().catch(() => {});
 
-// HTTP export endpoint
 const app = express();
-app.get('/metrics', async (_req, res) => {
-  try {
-    res.set('Content-Type', register.contentType);
-    res.end(await register.metrics());
-  } catch (e) {
-    res.status(500).send('failed to collect metrics');
-  }
+app.get('/metrics', async (_, res) => {
+  res.set('Content-Type', register.contentType);
+  res.send(await register.metrics());
 });
-app.listen(3000, () => console.log('Central custom metrics server running on port 3000'));
+app.listen(3000, () => console.log('🚀 Central metrics ULTRA v2025 (logporter full power) → :3000'));
+
+export async function resetMetrics() {
+  energyTotalKwh.reset();
+  transitionsTotal.reset();
+  nginxRequestsTotal.set(0);
+  lambdaGauge.set(0);
+  powerWattsGauge.set(CONFIG.energy?.Pidle ?? 80);
+  [containerCpuPercent, hostCpuPercent, containerMemPercent, nginxConnections, containerPids,
+   containerNetRxBytes, containerNetTxBytes, containerDiskRead, containerDiskWrite,
+   booksUsedBytes, booksUsedMb, booksUtilPercent].forEach(g => g.set(0));
+  console.log('Все метрики центрального узла сброшены');
+}

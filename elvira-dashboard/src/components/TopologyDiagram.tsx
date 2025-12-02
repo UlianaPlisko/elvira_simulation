@@ -80,13 +80,14 @@ export default function TopologyDiagram({ runningSim }: Props) {
   return (
     <Paper sx={{ p: 3, position: 'relative', overflow: 'visible' }}>
       <Typography variant="h6" gutterBottom>
-        Топология (Central + Edge nodes)
+        Topology Diagram (Central + Edge nodes)
       </Typography>
 
       <Box
         sx={{
           position: 'relative',
           width: '100%',
+          height: '100%',
           aspectRatio: '1 / 1',
           minHeight: { xs: 260, md: 300 },
           maxHeight: 600,

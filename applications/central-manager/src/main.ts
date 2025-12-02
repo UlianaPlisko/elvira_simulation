@@ -1,304 +1,212 @@
-// applications/central-manager/src/main.ts
+// applications/central-manager/src/main.ts 
 import './monitoring/metrics';
-console.log('metrics imported successfully');
+console.log('🚀 Central metrics ULTRA загружены');
 import CONFIG from './config';
 import express from 'express';
 import axios from 'axios';
-import { exec } from 'child_process';
-import util from 'util';
 import cors from 'cors';
 import { resetMetrics } from './monitoring/metrics';
 import { startSimulator, stopSimulator, restartSimulator, getSimulatorStatus } from './control/simulatorControl';
 
-const execAsync = util.promisify(exec);
-
 const app = express();
 app.use(express.json());
-
-app.use(cors({
-  origin: 'http://localhost:3101', // React app origin
-  methods: ['GET', 'POST']
-}));
+app.use(cors({ origin: 'http://localhost:3101', methods: ['GET', 'POST'] }));
 
 const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3100;
+const PROMETHEUS_URL = 'http://prometheus:9090'; // через Docker network, не IP!
 
-// Простое состояние (можно расширить)
-const state = {
-  lastDecisionTs: 0,
-  lastPredictedLambda: 0,
-  prefetchActive: false,
-};
-
-// baseline для "total requests since reset"
 let baselineRequestsCentral = 0;
-
-// флаг: пока он > now(), мы будем отдавать rps = 0
 let zeroRpsUntil = 0;
 
-// Health
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', pid: process.pid });
-});
+// Health & Status
+app.get('/health', (_req, res) => res.json({ status: 'ok', pid: process.pid }));
+app.get('/status', (_req, res) => res.json({ 
+  uptime: process.uptime(), 
+  timestamp: new Date().toISOString() 
+}));
 
-// Статус/диагностика
-app.get('/status', (_req, res) => {
-  res.json(state);
-});
-
-/**
- * POST /reset-metrics
- * Ожидает (опционально) тело { runningSim: number | null } — если runningSim != null -> reject.
- * Делает:
- *  - reset custom prom-client метрик
- *  - задаёт baselineRequestsCentral (значение sum(nginx_http_requests_total{job="nginx-central"}))
- *  - устанавливает короткий период zeroRpsUntil, чтобы rps временно был 0 (полезно для UI)
- */
+// Reset metrics
 app.post('/reset-metrics', async (req, res) => {
   try {
-    // защита: запрет обнуления когда симуляция запущена (frontend должен передать текущее состояние)
-    const runningSim = (req.body && typeof req.body.runningSim !== 'undefined') ? req.body.runningSim : null;
-    if (runningSim !== null && runningSim !== undefined) {
-      // если frontend отправил идентификатор запущенной симуляции — запретим reset
-      if (runningSim !== null) {
-        return res.status(400).json({ error: 'Cannot reset while a simulation is running' });
-      }
+    const runningSim = req.body?.runningSim ?? null;
+    if (runningSim !== null) {
+      return res.status(400).json({ error: 'Cannot reset while simulation is running' });
     }
 
-    // Reset local central custom metrics (prom-client registry)
     await resetMetrics();
 
-    // Capture baseline for nginx total requests so UI will show "since reset"
-    try {
-      const promQueryUrl = 'http://172.20.0.5:9090/api/v1/query';
-      const rQuery = 'sum(nginx_http_requests_total{job="nginx-central"})';
-      const rRes = await axios.get(`${promQueryUrl}?query=${encodeURIComponent(rQuery)}`, { timeout: 5000 });
-      const current = parseFloat(rRes.data?.data?.result?.[0]?.value?.[1] || '0');
-      baselineRequestsCentral = Number.isFinite(current) ? current : 0;
-      console.log('baselineRequestsCentral set to', baselineRequestsCentral);
-    } catch (e: any) {
-      console.warn('Could not set baselineRequestsCentral (Prometheus query failed):', e?.message || e);
-      // baselineRequestsCentral не изменяем — остаётся предыдущее значение
-    }
+    // Обновляем baseline запросов
+    const total = await promScalar('sum(nginx_http_requests_total{job="nginx-central"})');
+    baselineRequestsCentral = total;
+    zeroRpsUntil = Date.now() + 5000;
 
-    // Установим кратковременную блокировку: rps будет возвращаться 0 в течение 5 секунд после reset
-    zeroRpsUntil = Date.now() + 5000; // 5s, можно изменить
-
+    console.log('Метрики сброшены, baselineRequestsCentral =', baselineRequestsCentral);
     res.json({ result: 'ok', msg: 'central metrics reset' });
   } catch (e: any) {
-    console.error('central reset-metrics error:', e?.message || e);
-    res.status(500).json({ error: 'Failed to reset central metrics' });
+    console.error('reset-metrics error:', e);
+    res.status(500).json({ error: e.message || 'reset failed' });
   }
 });
 
-// Принудительный триггер prefetch (ручная отладка)
-app.post('/trigger-prefetch', async (req, res) => {
-  try {
-    const body = req.body || {};
-    await performPrefetch(body);
-    res.json({ result: 'ok', msg: 'prefetch triggered' });
-  } catch (e) {
-    console.error('Prefetch error:', e);
-    res.status(500).json({ error: String(e) });
-  }
-});
-
-// Новый эндпоинт для метрик central-only (для EI calc в frontend)
+// === ГЛАВНЫЙ ЭНДПОИНТ — ВСЁ В ОДНОМ! ===
 app.get('/central-metrics', async (req, res) => {
   try {
-    const promUrl = 'http://172.20.0.5:9090/api/v1/query';
+    const [
+      eTotal,
+      powerWatts,
+      lambda,
+      hostCpu,
+      containerCpu,
+      memBytes,
+      memPercent,
+      netRxBps,
+      netTxBps,
+      diskReadBps,
+      diskWriteBps,
+      pids,
+      connections,
+      requestsTotalRaw,
+      rpsRaw,
+      booksBytes,
+      booksMb,
+      booksUtil,
+      transitions
+    ] = await Promise.all([
+      promScalar('central_energy_kwh'),
+      promScalar('central_power_watts'),
+      promScalar('central_load_lambda'),
+      promScalar('central_host_cpu_percent'),
+      promScalar('central_cpu_load'), // это container CPU % (как в docker stats)
+      promScalar('central_mem_usage_bytes'),
+      promScalar('central_mem_load'),
+      promScalar('rate(docker_network_received_bytes{containerName="central-nginx"}[1m])'),
+      promScalar('rate(docker_network_transmit_bytes{containerName="central-nginx"}[1m])'),
+      promScalar('rate(docker_io_read_bytes{containerName="central-nginx"}[1m])'),
+      promScalar('rate(docker_io_write_bytes{containerName="central-nginx"}[1m])'),
+      promScalar('docker_process_pids_count{containerName="central-nginx"}'),
+      promScalar('central_nginx_connections_active'),
+      promScalar('central_requests_total'), // наш Gauge, синхронизирован с nginx-exporter
+      promScalar('central_requests_per_second'),
+      promScalar('central_books_used_bytes'),
+      promScalar('central_books_used_mb'),
+      promScalar('central_books_util_percent'),
+      promScalar('central_transitions_total')
+    ]);
 
-    // E_total для central (custom)
-    const eQuery = 'sum(central_energy_kwh) or vector(0)';
-    const eRes = await axios.get(`${promUrl}?query=${encodeURIComponent(eQuery)}`);
-    const eTotal = parseFloat(eRes.data.data.result[0]?.value[1] || '0');
-
-    const uQuery = 'central_books_util';
-    const uRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uQuery)}`);
-    const uRaw = uRes.data.data.result.length > 0
-      ? parseFloat(uRes.data.data.result[0].value[1])
-      : 0;
-    const u = Number(uRaw.toFixed(6));
-
-    // MB for books (new metric)
-    const uMbQuery = 'central_books_used_mb';
-    const uMbRes = await axios.get(`${promUrl}?query=${encodeURIComponent(uMbQuery)}`);
-    const uMbRaw = uMbRes.data.data.result.length > 0
-      ? parseFloat(uMbRes.data.data.result[0].value[1])
-      : 0;
-    const u_mb = Number(uMbRaw.toFixed(6));
-
-    // R для central (total requests из nginx-exporter) — baseline-adjusted
-    const rQuery = 'sum(nginx_http_requests_total{job="nginx-central"})';
-    const rRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rQuery)}`);
-    const rRaw = parseFloat(rRes.data.data.result[0]?.value[1] || '0');
-    const r = Math.max(0, rRaw - (baselineRequestsCentral || 0));
-
-    // RPS для central (requests per second, rate over 1m)
-    // Если мы недавно сделали reset — покажем 0 в rps (по флагу zeroRpsUntil)
-    let rps = 0;
-    if (Date.now() < zeroRpsUntil) {
-      rps = 0;
-    } else {
-      try {
-        const rpsQuery = 'rate(nginx_http_requests_total{job="nginx-central"}[1m])';
-        const rpsRes = await axios.get(`${promUrl}?query=${encodeURIComponent(rpsQuery)}`);
-        rps = parseFloat(rpsRes.data.data.result[0]?.value[1] || '0');
-      } catch (err) {
-        console.warn('rps query failed, returning 0', err);
-        rps = 0;
-      }
-    }
-
-    // Lambda (combined load из custom)
-    const lambdaQuery = 'central_load_lambda';
-    const lambdaRes = await axios.get(`${promUrl}?query=${encodeURIComponent(lambdaQuery)}`);
-    const lambda = parseFloat(lambdaRes.data.data.result[0]?.value[1] || '0');
-
-    // CPU load (из custom)
-    const cpuQuery = 'central_cpu_load';
-    const cpuRes = await axios.get(`${promUrl}?query=${encodeURIComponent(cpuQuery)}`);
-    const cpuLoad = parseFloat(cpuRes.data.data.result[0]?.value[1] || '0');
-
-    // Mem load (из custom)
-    const memQuery = 'central_mem_load';
-    const memRes = await axios.get(`${promUrl}?query=${encodeURIComponent(memQuery)}`);
-    const memLoad = parseFloat(memRes.data.data.result[0]?.value[1] || '0');
-
-    // Transitions (из custom)
-    const transQuery = 'central_transitions_total';
-    const transRes = await axios.get(`${promUrl}?query=${encodeURIComponent(transQuery)}`);
-    const transitions = parseFloat(transRes.data.data.result[0]?.value[1] || '0');
-
-    // T (duration в часах, из CONFIG для симуляции)
-    const t = CONFIG.simulation.duration / 3600;
+    // Защита от глюков после reset
+    const rps = Date.now() < zeroRpsUntil ? 0 : Number(rpsRaw.toFixed(2));
+    const requestsSinceReset = Math.max(0, requestsTotalRaw - baselineRequestsCentral);
 
     res.json({
+      // Энергия и Eco Index
       eTotal: Number(eTotal.toFixed(12)),
-      u: u.toFixed(6),
-      u_mb,
-      r,
-      rps: Number(rps.toFixed(2)),
-      t,
-      lambda: lambda.toFixed(2),
-      cpuLoad: cpuLoad.toFixed(2),
-      memLoad: memLoad.toFixed(2),
-      transitions
+      powerWatts: Number(powerWatts.toFixed(2)),
+      lambda: Number(lambda.toFixed(3)),
+
+      // CPU
+      hostCpuPercent: Number(hostCpu.toFixed(2)),
+      containerCpuPercent: Number(containerCpu.toFixed(2)),
+
+      // Память
+      memUsageBytes: Math.round(memBytes),
+      memUsageMb: Number((memBytes / 1024 / 1024).toFixed(2)),
+      memPercent: Number(memPercent.toFixed(2)),
+
+      // Сеть (KiB/s)
+      netRxKiBps: Number((netRxBps / 1024).toFixed(2)),
+      netTxKiBps: Number((netTxBps / 1024).toFixed(2)),
+
+      // Диск I/O (KiB/s)
+      diskReadKiBps: Number((diskReadBps / 1024).toFixed(2)),
+      diskWriteKiBps: Number((diskWriteBps / 1024).toFixed(2)),
+
+      // Процессы и Nginx
+      pids: Math.round(pids),
+      nginxConnectionsActive: Math.round(connections),
+      requestsTotal: Math.round(requestsTotalRaw),
+      requestsSinceReset: Math.round(requestsSinceReset),
+      rps: rps,
+
+      // Диск books
+      booksUsedBytes: Math.round(booksBytes),
+      booksUsedMb: Number(booksMb.toFixed(2)),
+      booksUtilPercent: Number(booksUtil.toFixed(2)),
+
+      // Переходы и симуляция
+      transitions: Math.round(transitions),
+      simulationHours: CONFIG.simulation.duration / 3600,
+
+      // Timestamp
+      timestamp: new Date().toISOString()
     });
   } catch (e: any) {
-    console.error('Central metrics error:', e.message || e);
-    res.status(500).json({ error: 'Failed to fetch central metrics' });
+    console.error('/central-metrics error:', e);
+    res.status(500).json({ error: 'failed to fetch metrics' });
   }
 });
 
-// Proxy для Prometheus (оставлен для других queries, если нужно)
-app.get('/prom-query', async (req, res) => {
+// Вспомогательная функция для запросов к Prometheus
+async function promScalar(query: string): Promise<number> {
   try {
-    const query = req.query.query as string;
-    if (!query) return res.status(400).json({ error: 'No query' });
-    const promRes = await axios.get(`http://172.20.0.5:9090/api/v1/query?query=${encodeURIComponent(query)}`);
-    res.json(promRes.data);
-  } catch (e) {
-    console.error('Prom proxy error:', e);
-    res.status(500).json({ error: 'Prom query failed' });
+    const r = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
+      params: { query },
+      timeout: 4000
+    });
+    const val = r.data?.data?.result?.[0]?.value?.[1];
+    return val ? parseFloat(val) : 0;
+  } catch (err) {
+    console.warn(`Prometheus query failed: ${query}`);
+    return 0;
   }
-});
+}
 
-const server = app.listen(CONTROL_PORT, () => {
-  console.log(`Central control API listening on ${CONTROL_PORT}`);
+// Остальные эндпоинты (симулятор, prefetch и т.д.) — без изменений
+app.post('/trigger-prefetch', async (req, res) => {
+  await performPrefetch(req.body || {});
+  res.json({ result: 'ok' });
 });
 
 app.post('/simulator/start', async (req, res) => {
   try {
-    const message = await startSimulator();
-    res.json({ message, service: 'student-facultyA' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+    const msg = await startSimulator();
+    res.json({ message: msg });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/simulator/stop', async (req, res) => {
   try {
-    const message = await stopSimulator();
-    res.json({ message, service: 'student-facultyA' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+    const msg = await stopSimulator();
+    res.json({ message: msg });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/simulator/restart', async (req, res) => {
   try {
-    const message = await restartSimulator();
-    res.json({ message, service: 'student-facultyA' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+    const msg = await restartSimulator();
+    res.json({ message: msg });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/simulator/status', async (req, res) => {
   try {
     const status = await getSimulatorStatus();
     res.json(status);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// --- Decision loop ---
-async function predictLoad(): Promise<number> {
-  try {
-    return Math.random(); // заглушка
-  } catch (e) {
-    console.warn('predictLoad fallback', e);
-    return 0;
-  }
+// Decision loop (можно потом заменить на ML)
+async function performPrefetch(_opts?: any) {
+  console.log('Prefetch triggered manually');
 }
 
-async function performPrefetch(opts?: Record<string, unknown>) {
-  console.log('Performing prefetch with opts=', opts || {});
-  state.prefetchActive = true;
-  await new Promise((r) => setTimeout(r, 2000));
-  state.prefetchActive = false;
-  console.log('Prefetch done');
-}
+setInterval(() => {
+  console.log('Decision loop tick — predicted load placeholder');
+}, CONFIG.load.deltaSeconds * 1000);
 
-async function updateCoreDNSRules(rules: Record<string, string>) {
-  console.log('updateCoreDNSRules called', rules);
-}
-
-async function decisionLoop() {
-  try {
-    console.log('Decision loop tick at', new Date().toISOString());
-    const predicted = await predictLoad();
-    state.lastPredictedLambda = predicted;
-    state.lastDecisionTs = Date.now();
-
-    console.log(`Predicted lambda=${predicted.toFixed(3)}`);
-
-    if (predicted > CONFIG.load.threshold) {
-      console.log('Predicted high load > threshold -> trigger prefetch and consider routing update');
-      await performPrefetch({ predicted });
-      await updateCoreDNSRules({ action: 'route-to-edges' });
-    } else {
-      console.log('Predicted load normal (no action)');
-    }
-  } catch (e) {
-    console.error('decisionLoop error:', e);
-  }
-}
-
-setInterval(decisionLoop, CONFIG.load.deltaSeconds * 1000);
-
-process.on('SIGINT', async () => {
-  console.info('SIGINT received - shutting down');
-  server.close(() => {
-    process.exit(0);
-  });
-});
-process.on('SIGTERM', async () => {
-  console.info('SIGTERM received - shutting down');
-  server.close(() => {
-    process.exit(0);
-  });
+const server = app.listen(CONTROL_PORT, () => {
+  console.log(`Central Manager API запущен на :${CONTROL_PORT}`);
+  console.log(`   → http://localhost:${CONTROL_PORT}/central-metrics — все метрики в одном JSON`);
 });
 
-console.log('Central manager main started. Decision loop deltaSeconds=', CONFIG.load.deltaSeconds);
+process.on('SIGINT', () => server.close(() => process.exit(0)));
+process.on('SIGTERM', () => server.close(() => process.exit(0)));

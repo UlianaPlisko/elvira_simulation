@@ -1,5 +1,5 @@
-// main.ts
-import './monitoring/metrics'; // инициализация и /metrics сервер
+// applications/facultyA-manager/src/main.ts
+import './monitoring/metrics';
 import { resetMetrics } from './monitoring/metrics';
 import CONFIG from './config';
 import express from 'express';
@@ -9,147 +9,167 @@ import cors from 'cors';
 const app = express();
 app.use(express.json());
 app.use(cors({
-  origin: 'http://localhost:3101', // frontend origin (тот же, что у central)
+  origin: 'http://localhost:3101',
   methods: ['GET', 'POST']
 }));
 
-// CONTROL port — для Faculty A мы выставляем 3001, т.к. в frontend FACULTYA_BASE = http://localhost:3001
 const CONTROL_PORT = process.env.CONTROL_PORT ? parseInt(process.env.CONTROL_PORT) : 3001;
-const PROM_URL = 'http://172.20.0.5:9090'; // prometheus
+const PROMETHEUS_URL = CONFIG.prometheus?.url || 'http://prometheus:9090';
 
-// Health
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', pid: process.pid });
-});
-
-// Status
-const state = { lastPrefetch: 0, prefetchActive: false };
 let baselineRequestsFacultyA = 0;
-// Пока Date.now() < zeroRpsUntil — будем отдавать rps = 0
 let zeroRpsUntil = 0;
 
-app.get('/status', (_req, res) => res.json(state));
+// Health & status
+app.get('/health', (_req, res) => res.json({ status: 'ok', pid: process.pid }));
+app.get('/status', (_req, res) => res.json({
+  uptime: process.uptime(),
+  timestamp: new Date().toISOString()
+}));
 
-/**
- * POST /reset-metrics
- * Тело: { runningSim?: number | null } — backend дополнительно проверяет, что симуляция не запущена.
- */
+// Reset metrics
 app.post('/reset-metrics', async (req, res) => {
   try {
-    const runningSim = (req.body && typeof req.body.runningSim !== 'undefined') ? req.body.runningSim : null;
-    if (runningSim !== null && runningSim !== undefined) {
-      // Если frontend прислал идентификатор запущенной симуляции — запрещаем reset
-      if (runningSim !== null) {
-        return res.status(400).json({ error: 'Cannot reset while a simulation is running' });
-      }
+    const runningSim = req.body?.runningSim ?? null;
+    if (runningSim !== null) {
+      return res.status(400).json({ error: 'Cannot reset while simulation is running' });
     }
 
-    // Reset локальных prom-client метрик
     await resetMetrics();
 
-    // Установить baseline для счетчика nginx, чтобы UI показывал "since reset"
+    // Update baseline nginx requests
     try {
-      const rQuery = 'sum(nginx_http_requests_total{job="nginx-facultyA"})';
-      const queryUrl = `${PROM_URL}/api/v1/query?query=${encodeURIComponent(rQuery)}`;
-      const rRes = await axios.get(queryUrl, { timeout: 5000 });
-      const raw = rRes.data?.data?.result?.[0]?.value?.[1];
-      const current = parseFloat(raw || '0');
-      baselineRequestsFacultyA = Number.isFinite(current) ? current : 0;
-      console.log('FacultyA: baselineRequestsFacultyA set to', baselineRequestsFacultyA);
-    } catch (err: any) {
-      console.warn('FacultyA: failed to set baselineRequestsFacultyA (Prometheus query):', err?.message || err);
-      // baseline не меняем в случае ошибки
+      const total = await promScalar('sum(nginx_http_requests_total{job="nginx-facultyA"})');
+      baselineRequestsFacultyA = total;
+      zeroRpsUntil = Date.now() + 5000;
+      console.log('FacultyA: baselineRequestsFacultyA =', baselineRequestsFacultyA);
+    } catch (err) {
+      console.warn('FacultyA: failed to set baselineRequestsFacultyA:', err);
     }
-
-    // Короткое обнуление rps — 5 секунд после reset возвращаем rps=0 (можно изменить)
-    zeroRpsUntil = Date.now() + 5000;
 
     res.json({ result: 'ok', msg: 'facultyA metrics reset' });
   } catch (e: any) {
-    console.error('facultyA reset-metrics error:', e?.message || e);
-    res.status(500).json({ error: 'Failed to reset facultyA metrics' });
+    console.error('facultyA reset-metrics error:', e);
+    res.status(500).json({ error: e.message || 'reset failed' });
   }
 });
 
-// Endpoint для фронтенда: /facultyA-metrics (формат совпадает с /central-metrics)
+// Helper for Prometheus scalar queries
+async function promScalar(query: string): Promise<number> {
+  try {
+    const r = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
+      params: { query },
+      timeout: 4000
+    });
+    const val = r.data?.data?.result?.[0]?.value?.[1];
+    return val ? parseFloat(val) : 0;
+  } catch (err) {
+    console.warn(`Prometheus query failed: ${query}`);
+    return 0;
+  }
+}
+
+// Main endpoint returning consolidated metrics (same format as central)
 app.get('/facultyA-metrics', async (_req, res) => {
   try {
-    const promQuery = async (q: string): Promise<number> => {
-      try {
-        const r = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(q)}`, { timeout: 5000 });
-        const result = r.data?.data?.result;
-        if (Array.isArray(result) && result.length > 0 && result[0].value && result[0].value.length >= 2) {
-          const v = parseFloat(result[0].value[1]);
-          return Number.isFinite(v) ? v : 0;
-        }
-        return 0;
-      } catch (err: any) {
-        console.warn(`Prom query "${q}" failed:`, err?.message || err);
-        return 0;
-      }
-    };
-
-    // Запросы в параллель
     const [
-      eTotalVal,
-      uPercentVal,
-      uMbVal,
-      rVal,
-      rpsVal,
-      lambdaVal,
-      cpuLoadVal,
-      memLoadVal,
-      transitionsVal
+      eTotal,
+      powerWatts,
+      lambda,
+      hostCpu,
+      containerCpu,
+      memBytes,
+      memPercent,
+      netRxBps,
+      netTxBps,
+      diskReadBps,
+      diskWriteBps,
+      pids,
+      connections,
+      requestsTotalRaw,
+      rpsRaw,
+      booksBytes,
+      booksMb,
+      booksUtil,
+      transitions
     ] = await Promise.all([
-      promQuery('sum(facultyA_energy_kwh) or vector(0)'),
-      promQuery('facultyA_books_util'),
-      promQuery('facultyA_books_used_mb'),
-      promQuery('sum(nginx_http_requests_total{job="nginx-facultyA"})'),
-      promQuery('rate(nginx_http_requests_total{job="nginx-facultyA"}[1m])'),
-      promQuery('facultyA_load_lambda'),
-      promQuery('facultyA_cpu_load'),
-      promQuery('facultyA_mem_load'),
-      promQuery('facultyA_transitions_total'),
+      promScalar('facultyA_energy_kwh'),
+      promScalar('facultyA_power_watts'),
+      promScalar('facultyA_load_lambda'),
+      promScalar('facultyA_host_cpu_percent'),
+      promScalar('facultyA_cpu_load'), // container CPU %
+      promScalar('facultyA_mem_usage_bytes'),
+      promScalar('facultyA_mem_load'),
+      promScalar(`rate(docker_network_received_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
+      promScalar(`rate(docker_network_transmit_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
+      promScalar(`rate(docker_io_read_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
+      promScalar(`rate(docker_io_write_bytes{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}[1m])`),
+      promScalar(`docker_process_pids_count{containerName="${CONFIG.metrics?.containerName || 'facultyA-nginx'}"}`),
+      promScalar('facultyA_nginx_connections_active'),
+      promScalar('facultyA_requests_total'), // Gauge from metrics server
+      promScalar('facultyA_requests_per_second'),
+      promScalar('facultyA_books_used_bytes'),
+      promScalar('facultyA_books_used_mb'),
+      promScalar('facultyA_books_util_percent'),
+      promScalar('facultyA_transitions_total')
     ]);
 
-    const t = CONFIG.simulation.duration / 3600;
+    // Protect against immediate noise after reset
+    const rps = Date.now() < zeroRpsUntil ? 0 : Number(rpsRaw.toFixed(2));
+    const requestsSinceReset = Math.max(0, requestsTotalRaw - baselineRequestsFacultyA);
 
-    // Корректировка total requests по baseline (requests since reset)
-    const rAdjusted = Math.max(0, (rVal || 0) - (baselineRequestsFacultyA || 0));
+    res.json({
+      // Energy & Eco Index
+      eTotal: Number(eTotal.toFixed(12)),
+      powerWatts: Number(powerWatts.toFixed(2)),
+      lambda: Number(lambda.toFixed(3)),
 
-    // rps: если недавно был reset — отдаём 0, иначе используем rate() результат (rpsVal)
-    let rps: number;
-    if (Date.now() < zeroRpsUntil) {
-      rps = 0;
-    } else {
-      // использовать rpsVal, который мы уже запросили в параллеле
-      rps = Number.isFinite(rpsVal) ? rpsVal : 0;
-    }
+      // CPU
+      hostCpuPercent: Number(hostCpu.toFixed(2)),
+      containerCpuPercent: Number(containerCpu.toFixed(2)),
 
-    return res.json({
-      eTotal: Number(eTotalVal.toFixed(12)),
-      u: uPercentVal.toFixed(6),
-      u_mb: Number(uMbVal.toFixed(6)),
-      r: Number(rAdjusted),
-      rps: Number(rps.toFixed(2)),
-      t,
-      lambda: Number(lambdaVal).toFixed(2),
-      cpuLoad: Number(cpuLoadVal).toFixed(2),
-      memLoad: Number(memLoadVal).toFixed(2),
-      transitions: Number(transitionsVal)
+      // Memory
+      memUsageBytes: Math.round(memBytes),
+      memUsageMb: Number((memBytes / 1024 / 1024).toFixed(2)),
+      memPercent: Number(memPercent.toFixed(2)),
+
+      // Network (KiB/s)
+      netRxKiBps: Number((netRxBps / 1024).toFixed(2)),
+      netTxKiBps: Number((netTxBps / 1024).toFixed(2)),
+
+      // Disk I/O (KiB/s)
+      diskReadKiBps: Number((diskReadBps / 1024).toFixed(2)),
+      diskWriteKiBps: Number((diskWriteBps / 1024).toFixed(2)),
+
+      // Processes & nginx
+      pids: Math.round(pids),
+      nginxConnectionsActive: Math.round(connections),
+      requestsTotal: Math.round(requestsTotalRaw),
+      requestsSinceReset: Math.round(requestsSinceReset),
+      rps: rps,
+
+      // Books / cache
+      booksUsedBytes: Math.round(booksBytes),
+      booksUsedMb: Number(booksMb.toFixed(2)),
+      booksUtilPercent: Number(booksUtil.toFixed(2)),
+
+      // Transitions & sim
+      transitions: Math.round(transitions),
+      simulationHours: CONFIG.simulation.duration / 3600,
+
+      timestamp: new Date().toISOString()
     });
   } catch (e: any) {
-    console.error('facultyA-metrics error (top):', e?.message || e);
-    res.status(500).json({ error: 'Failed to fetch facultyA metrics' });
+    console.error('/facultyA-metrics error:', e?.message || e);
+    res.status(500).json({ error: 'failed to fetch facultyA metrics' });
   }
 });
 
-// Прокси для произвольных Prometheus-запросов (как у central)
+// Prometheus query proxy
 app.get('/prom-query', async (req, res) => {
   try {
     const query = String(req.query.query || '');
     if (!query) return res.status(400).json({ error: 'No query' });
-    const promRes = await axios.get(`${PROM_URL}/api/v1/query?query=${encodeURIComponent(query)}`);
+    const promRes = await axios.get(`${PROMETHEUS_URL}/api/v1/query?query=${encodeURIComponent(query)}`);
     res.json(promRes.data);
   } catch (e) {
     console.error('Prom proxy error (facultyA):', e);
@@ -157,14 +177,15 @@ app.get('/prom-query', async (req, res) => {
   }
 });
 
+// Prefetch stub
 app.post('/trigger-prefetch', async (req, res) => {
   console.log('Prefetch triggered (facultyA) opts=', req.body || {});
-  // stub
   res.json({ result: 'ok', msg: 'prefetch triggered (stub)' });
 });
 
 const server = app.listen(CONTROL_PORT, () => {
   console.log(`Faculty A control API listening on ${CONTROL_PORT}`);
+  console.log(`   → http://localhost:${CONTROL_PORT}/facultyA-metrics — all metrics JSON`);
 });
 
 process.on('SIGINT', () => server.close(() => process.exit(0)));

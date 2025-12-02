@@ -44,8 +44,8 @@ export default function App() {
       <Container maxWidth={false} disableGutters sx={{ mt: 4, px: 2 }}>
         <Grid container spacing={3} alignItems="stretch">
           {/* LEFT: topology */}
-          <Grid size={{ xs: 12, md: 6 }} sx={{ minHeight: ROW_MIN_HEIGHT }}>
-            <TopologyDiagram runningSim={runningSim} />
+          <Grid size={{ xs: 12, md: 6 }} sx={{ minHeight: ROW_MIN_HEIGHT, height: '100%', }}>
+            <TopologyDiagram runningSim={runningSim}  />
           </Grid>
 
           {/* RIGHT: EcoIndex (top) + NodeMatrix (fills remaining) */}

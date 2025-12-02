@@ -1,5 +1,5 @@
 // src/components/EcoIndexCard.tsx
-import { Card, CardContent, Typography, LinearProgress} from '@mui/material';
+import { Card, CardContent, Typography, LinearProgress } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { getCentralMetrics, getFacultyAMetrics } from '../services/api';
 
@@ -20,35 +20,54 @@ export default function EcoIndexCard() {
 
     const fetchAndCompute = async () => {
       try {
-        const [centralRes, facultyRes] = await Promise.all([
-          getCentralMetrics(),
-          getFacultyAMetrics()
-        ]);
+        const [centralRes, facultyRes] = await Promise.all([getCentralMetrics(), getFacultyAMetrics()]);
 
-        const central = centralRes.data ?? {};
-        const faculty = facultyRes.data ?? {};
+        const central = centralRes.data || {};
+        const faculty = facultyRes.data || {};
 
-        const totalE = (central.eTotal || 0) + (faculty.eTotal || 0);
-        const totalR = (central.r || 0) + (faculty.r || 0);
-        const uCentral = parseFloat(central.u || '0'); // percent
-        const uFaculty = parseFloat(faculty.u || '0'); // percent
-        const avgU = ( (isNaN(uCentral) ? 0 : uCentral) + (isNaN(uFaculty) ? 0 : uFaculty) ) / 2;
+        // console.log('Central metrics:', central);
+        // console.log('FacultyA metrics:', faculty);
 
-        // MB values (new)
-        const uCentralMb = parseFloat(central.u_mb ?? '0');
-        const uFacultyMb = parseFloat(faculty.u_mb ?? '0');
+        // Energy
+        const centralE = Number(central.eTotal || 0);
+        const facultyE = Number(faculty.eTotal || 0);
+        const totalE = centralE + facultyE;
 
-        const t = central.t || faculty.t || 0;
+        // Requests since reset (use requestsSinceReset field from backends)
+        const centralR = Number(central.requestsSinceReset || 0);
+        const facultyR = Number(faculty.requestsSinceReset || 0);
+        const totalR = centralR + facultyR;
+
+        // Books utilization percent (booksUtilPercent) and MB (booksUsedMb)
+        const uCentralPercent = Number(central.booksUtilPercent ?? central.booksUtilPercent) || 0;
+        const uFacultyPercent = Number(faculty.booksUtilPercent ?? faculty.booksUtilPercent) || 0;
+        const avgU = (uCentralPercent + uFacultyPercent) / ( ( (uCentralPercent || uFacultyPercent) === 0 ) ? 1 : 2 );
+
+        const uCentralMb = Number(central.booksUsedMb || 0);
+        const uFacultyMb = Number(faculty.booksUsedMb || 0);
+
+        // Simulation hours (t) — prefer central if present
+        const t = Number(central.simulationHours ?? faculty.simulationHours ?? 0);
+
+        // Eco Index calculation (protect against division by zero)
         const denom = (totalR * t) || 1;
-        const ei = (totalE * (1 - avgU / 100)) / denom;
-        const carbonFactor = 0.5;
+        const ei = denom === 0 ? 0 : (totalE * (1 - (avgU / 100))) / denom;
+
+        const carbonFactor = 0.5; // your factor
         const co2 = ei * carbonFactor;
 
         if (!mounted) return;
 
         setTotalEI(ei);
         setTotalCO2(co2);
-        setSummary({ totalEnergy: totalE, avgU, totalR, t, central_mb: uCentralMb, faculty_mb: uFacultyMb });
+        setSummary({
+          totalEnergy: totalE,
+          avgU,
+          totalR,
+          t,
+          central_mb: uCentralMb,
+          faculty_mb: uFacultyMb
+        });
       } catch (err) {
         console.error('EcoIndex fetch error:', err);
       }
@@ -62,7 +81,6 @@ export default function EcoIndexCard() {
   return (
     <Card sx={{ boxShadow: 3, borderRadius: 2 }}>
       <CardContent>
-        {/* header unchanged */}
         <Typography variant="h3" color="primary" sx={{ mt: 1 }}>
           {Number(totalEI).toFixed(6)}
         </Typography>
@@ -70,8 +88,8 @@ export default function EcoIndexCard() {
         <Typography variant="body2" sx={{ mt: 1 }}>
           Total Energy: <strong>{Number(summary.totalEnergy).toFixed(6)} kWh</strong><br />
           Total CO₂: <strong>{Number(totalCO2).toFixed(6)} kg</strong><br />
-          Avg U (Books %): <strong>{Number(summary.avgU).toFixed(3)}%</strong> | Central: <strong>{Number(summary.central_mb).toFixed(3)} MB</strong> | Faculty: <strong>{Number(summary.faculty_mb).toFixed(3)} MB</strong><br/>
-          Total R: <strong>{summary.totalR}</strong> | T: <strong>{summary.t}</strong>h
+          Avg U (Books %): <strong>{Number(summary.avgU).toFixed(3)}%</strong> | Central: <strong>{Number(summary.central_mb).toFixed(3)} MB</strong> | Faculty: <strong>{Number(summary.faculty_mb).toFixed(3)} MB</strong><br />
+          Total R (since reset): <strong>{summary.totalR}</strong> | T (sim hours): <strong>{summary.t}</strong>
         </Typography>
 
         <LinearProgress
