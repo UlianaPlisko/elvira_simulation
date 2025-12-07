@@ -1,7 +1,7 @@
 // src/components/ControlsPanel.tsx
 import { useState } from 'react';
 import { Box, Paper, Typography, Stack, Button, Divider, Chip, Tooltip } from '@mui/material';
-import { resetAllMetrics, startSimulation, stopSimulation } from '../services/api';  // Добавили import для start/stop
+import { resetAllMetrics, startNormalSimulation, startExamSimulation, stopSimulation } from '../services/api';  // added startExamSimulation
 
 type Props = {
   runningSim: number | null;
@@ -15,12 +15,9 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
   const [loadingSim, setLoadingSim] = useState(false);  // Новый state для loading во время start/stop
 
   const simulations = [
-    { id: 1, label: 'Simulation 1', caption: 'baseline run' },
-    { id: 2, label: 'Simulation 2', caption: 'energy-aware' },
-    { id: 3, label: 'Simulation 3', caption: 'failover test' },
+    { id: 1, label: 'Simulation 1', caption: 'normal mode', details: 'Normal mode — light sessions: 1–3 books per session, small jitter; steady traffic for usual load testing.' },
+    { id: 2, label: 'Simulation 2', caption: 'exam mode',   details: 'Exam mode — heavy/bursty sessions: 1–9 books per session, high jitter; used to simulate peak/burst load.' },
   ];
-
-  const lorem = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit.';
 
   // local reset handler (prefers onReset prop if provided)
   const handleResetClick = async () => {
@@ -63,44 +60,44 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
       if (facultyB.status === 'fulfilled') {
         const res = facultyB.value;
         if (res && res.status >= 200 && res.status < 300) {
-          results.push('Faculty A reset OK');
+          results.push('Faculty B reset OK');
         } else {
-          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+          results.push(`Faculty B reset HTTP ${res?.status ?? 'unknown'}`);
         }
       } else {
-        results.push(`Faculty A reset failed: ${String(facultyB.reason)}`);
+        results.push(`Faculty B reset failed: ${String(facultyB.reason)}`);
       }
       if (facultyC.status === 'fulfilled') {
         const res = facultyC.value;
         if (res && res.status >= 200 && res.status < 300) {
-          results.push('Faculty A reset OK');
+          results.push('Faculty C reset OK');
         } else {
-          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+          results.push(`Faculty C reset HTTP ${res?.status ?? 'unknown'}`);
         }
       } else {
-        results.push(`Faculty A reset failed: ${String(facultyC.reason)}`);
+        results.push(`Faculty C reset failed: ${String(facultyC.reason)}`);
       }
       if (facultyD.status === 'fulfilled') {
         const res = facultyD.value;
         if (res && res.status >= 200 && res.status < 300) {
-          results.push('Faculty A reset OK');
+          results.push('Faculty D reset OK');
         } else {
-          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+          results.push(`Faculty D reset HTTP ${res?.status ?? 'unknown'}`);
         }
       } else {
-        results.push(`Faculty A reset failed: ${String(facultyD.reason)}`);
+        results.push(`Faculty D reset failed: ${String(facultyD.reason)}`);
       }
       if (facultyE.status === 'fulfilled') {
         const res = facultyE.value;
         if (res && res.status >= 200 && res.status < 300) {
-          results.push('Faculty A reset OK');
+          results.push('Faculty E reset OK');
         } else {
-          results.push(`Faculty A reset HTTP ${res?.status ?? 'unknown'}`);
+          results.push(`Faculty E reset HTTP ${res?.status ?? 'unknown'}`);
         }
       } else {
-        results.push(`Faculty A reset failed: ${String(facultyE.reason)}`);
+        results.push(`Faculty E reset failed: ${String(facultyE.reason)}`);
       }
-      console.log('Reset metrics results:', results); 
+      console.log('Reset metrics results:', results);
     } catch (err) {
       console.error('Unexpected reset error:', err);
       alert('Reset failed (see console)');
@@ -109,11 +106,11 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
     }
   };
 
-  // Новый handler для start/stop симуляции (только для id=1)
+  // handler for start/stop simulation (supports id=1 and id=2)
   const handleStartStop = async (id: number, isRunning: boolean) => {
-    if (id !== 1) {
-      console.log(`Simulation ${id} not implemented yet`);
-      return;  // Заглушка для 2 и 3
+    if (id !== 1 && id !== 2) {
+      console.log(`Simulation ${id} not implemented yet (design-only).`);
+      return;
     }
 
     setLoadingSim(true);
@@ -123,8 +120,13 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
         console.log('Simulation stopped');
         onStop();  // Вызов пропса для обновления состояния в parent
       } else {
-        await startSimulation();
-        console.log('Simulation started');
+        if (id === 1) {
+          await startNormalSimulation();
+          console.log('Normal simulation started');
+        } else {
+          await startExamSimulation();
+          console.log('Exam simulation started');
+        }
         onStart(id);  // Вызов пропса
       }
     } catch (err) {
@@ -148,10 +150,10 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
         {simulations.map((s) => {
           const isRunning = runningSim === s.id;
           const disabledOther = runningSim !== null && !isRunning;
-          const isDisabled = disabledOther || loadingSim || (s.id !== 1 && !isRunning);  // Для 2/3 disable start, если не running
+          const isDisabled = disabledOther || loadingSim;  // allow both id 1 and 2 to start/stop
           return (
             <Box key={s.id}>
-              <Tooltip title={lorem} arrow>
+              <Tooltip title={s.details} arrow>
                 <span>
                   <Button
                     variant={isRunning ? 'outlined' : 'contained'}
@@ -184,7 +186,7 @@ export default function ControlsPanel({ runningSim, onStart, onStop, onReset }: 
         </Button>
 
         <Typography variant="caption" color="text.secondary">
-          Buttons are connected to backend for Simulation 1. Others are design-only for now.
+          Buttons: Simulation 1 = normal mode (works). Simulation 2 = exam mode (also triggers backend start).
         </Typography>
       </Stack>
     </Paper>

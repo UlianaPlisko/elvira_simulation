@@ -6,7 +6,7 @@ import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
 import { resetMetrics } from './monitoring/metrics';
-import { startSimulator, stopSimulator, restartSimulator, getSimulatorStatus } from './control/simulatorControl';
+import { startSimulator, stopSimulator, getSimulatorStatus} from './control/simulatorControl';
 
 const app = express();
 app.use(express.json());
@@ -166,25 +166,32 @@ app.post('/trigger-prefetch', async (req, res) => {
   res.json({ result: 'ok' });
 });
 
-app.post('/simulator/start', async (req, res) => {
+app.post('/simulator/normal', async (req, res) => {
   try {
-    const msg = await startSimulator();
+    const msg = await startSimulator('normal');
     res.json({ message: msg });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Новый эндпоинт: /simulator/exam
+app.post('/simulator/exam', async (req, res) => {
+  try {
+    const msg = await startSimulator('exam');
+    res.json({ message: msg });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/simulator/stop', async (req, res) => {
   try {
     const msg = await stopSimulator();
     res.json({ message: msg });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/simulator/restart', async (req, res) => {
-  try {
-    const msg = await restartSimulator();
-    res.json({ message: msg });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/simulator/status', async (req, res) => {
@@ -198,10 +205,6 @@ app.get('/simulator/status', async (req, res) => {
 async function performPrefetch(_opts?: any) {
   console.log('Prefetch triggered manually');
 }
-
-setInterval(() => {
-  console.log('Decision loop tick — predicted load placeholder');
-}, CONFIG.load.deltaSeconds * 1000);
 
 const server = app.listen(CONTROL_PORT, () => {
   console.log(`Central Manager API запущен на :${CONTROL_PORT}`);
