@@ -5,6 +5,8 @@ import CONFIG from './config';
 import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
+import fs from 'fs/promises';
+import { exec } from 'child_process';
 import { resetMetrics } from './monitoring/metrics';
 import { startSimulator, stopSimulator, getSimulatorStatus} from './control/simulatorControl';
 
@@ -199,6 +201,18 @@ app.get('/simulator/status', async (req, res) => {
     const status = await getSimulatorStatus();
     res.json(status);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/update-strategy', async (req, res) => {
+  const { strategy, algo, level } = req.body;
+  // Read template, replace $STRATEGY etc. with values
+  let template = await fs.readFile('/etc/nginx/nginx.conf.template', 'utf8');
+  template = template.replace(/\$STRATEGY/g, strategy).replace(/\$COMPRESS_ALGO/g, algo);
+  await fs.writeFile('/etc/nginx/nginx.conf', template);
+  exec('nginx -s reload', (err) => {
+    if (err) return res.status(500).json({ error: 'Reload failed' });
+    res.json({ message: 'Config updated and reloaded' });
+  });
 });
 
 // Decision loop (можно потом заменить на ML)

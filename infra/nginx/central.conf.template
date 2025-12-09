@@ -1,4 +1,4 @@
-# applications/central-manager/nginx.conf (or included file)
+# infra/nginx/central.conf.template
 user  nginx;
 worker_processes  auto;
 error_log  /var/log/nginx/error.log warn;
@@ -23,21 +23,27 @@ http {
 
         location = /stub_status {
             stub_status;
-            access_log off;          # no noise in access.log
+            access_log off;
             allow 127.0.0.1;
-            allow 172.20.0.0/16;     # all containers in elvira-net
+            allow 172.20.0.0/16;
             deny  all;
         }
 
-        root /var/www/elvira;        # <-- matches the path in the Dockerfile
+        root /var/www/elvira;
         index index.html index.htm;
 
         location /books/ {
-            autoindex off;           # we do NOT want directory listing
+            alias ${BOOKS_ALIAS};
+            autoindex off;
             try_files $uri $uri/ =404;
+
+            set $content_enc '${CONTENT_ENCODING}';
+            if ($content_enc != '') {
+                add_header Content-Encoding $content_enc;
+                add_header Vary Accept-Encoding;
+            }
         }
 
-        # optional: health check for the Node.js control API
         location /health {
             proxy_pass http://127.0.0.1:3100/health;
         }

@@ -22,11 +22,11 @@ FROM nginx:alpine
 
 # Устанавливаем node runtime и другие пакеты
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash iproute2 && \
+    apk update && apk add --no-cache nodejs npm gettext prometheus-node-exporter bash iproute2 && \
     rm -rf /var/cache/apk/*
 
 # nginx config (предполагаю, что conf в infra/nginx/edge.conf или подобном — адаптируй путь)
-COPY infra/nginx/edge-default.conf /etc/nginx/nginx.conf  
+COPY infra/nginx/edge.conf.template /etc/nginx/edge.conf.template
 
 # Создаём директории для кэша и логов
 RUN mkdir -p /var/cache/nginx/elvira_cache /var/log/edge /var/www/elvira && \

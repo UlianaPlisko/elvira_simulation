@@ -24,13 +24,13 @@ RUN npm run build
 FROM nginx:alpine
 
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update && apk add --no-cache nodejs npm prometheus-node-exporter bash iproute2 && \
+    apk update && apk add --no-cache nodejs npm gettext prometheus-node-exporter bash iproute2 && \
     # Добавляем Docker CLI и Compose плагин для выполнения команд из контейнера
     apk add --no-cache docker-cli docker-cli-compose && \
     rm -rf /var/cache/apk/*
 
 # nginx config и статический контент
-COPY infra/nginx/default.conf /etc/nginx/nginx.conf
+COPY infra/nginx/central.conf.template /etc/nginx/central.conf.template
 RUN mkdir -p /var/www/elvira/books && \
     chown -R nginx:nginx /var/www/elvira /usr/share/nginx/html || true
 COPY mock-content/ /var/www/elvira/books/

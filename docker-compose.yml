@@ -20,6 +20,10 @@ services:
       - main-dns
       - secondary-dns
     privileged: true
+    environment:
+      - STRATEGY=1
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
   facultyA-edge:
     build:
@@ -40,6 +44,10 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    environment:
+      - STRATEGY=2
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
   facultyB-edge:
     build:
@@ -60,6 +68,10 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    environment:
+      - STRATEGY=2
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
   
   facultyC-edge:
@@ -81,6 +93,10 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    environment:
+      - STRATEGY=2
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
 
   facultyD-edge:
@@ -102,6 +118,10 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    environment:
+      - STRATEGY=2
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
 
   facultyE-edge:
@@ -123,6 +143,10 @@ services:
     depends_on:
       - central-nginx
     privileged: true
+    environment:
+      - STRATEGY=2
+      - COMPRESS_ALGO=gzip
+      - COMPRESS_LEVEL=6
     profiles: []
 
   main-dns:
@@ -291,6 +315,25 @@ services:
       - secondary-dns
     profiles:
       - simulator
+      
+  selenium-client:
+    image: selenium/standalone-chrome:latest
+    container_name: selenium-client
+    cap_add:
+      - NET_ADMIN
+    networks:
+      facultyA-net:
+        ipv4_address: 192.168.1.60
+    dns:
+      - 172.20.0.3
+    depends_on:
+      - facultyA-edge
+      - main-dns
+      - secondary-dns
+    profiles:
+      - usecase2
+    volumes:
+      - ./applications/simulators/use-case2:/scripts
   node-exporter-host:
     image: prom/node-exporter:latest
     container_name: node-exporter-central

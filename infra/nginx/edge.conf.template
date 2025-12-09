@@ -1,4 +1,4 @@
-# applications/edge-managers/facultyA/nginx.conf (or conf.d/default.conf template)
+# infra/nginx/edge.conf.template
 user  nginx;
 worker_processes  auto;
 error_log  /var/log/nginx/error.log warn;
@@ -8,7 +8,7 @@ events { worker_connections 1024; }
 
 http {
     upstream central_elvira {
-        server 172.20.0.2:80;  # central server
+        server 172.20.0.2:80;
     }
 
     log_format edge '$remote_addr - $remote_user [$time_local] "$request" '
@@ -23,7 +23,7 @@ http {
         listen 80;
         server_name elvira.lib;
 
-        location /stub_status {
+        location = /stub_status {
             stub_status;
             access_log off;
         }
@@ -36,7 +36,6 @@ http {
             proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
             add_header X-Cache-Status $upstream_cache_status;
 
-            # preserve original client IP chain and real ip
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -45,10 +44,13 @@ http {
             proxy_connect_timeout 5s;
             proxy_read_timeout 30s;
 
+            # gunzip вставляется как on/off строка (подставится через envsubst)
+            gunzip ${GUNZIP_SETTING};
+            gunzip_buffers 32 4k;
+
             proxy_pass http://central_elvira;
         }
 
-        # Optionally serve a small local webroot for tests
         location / {
             root /usr/share/nginx/html;
             index index.html index.htm;
