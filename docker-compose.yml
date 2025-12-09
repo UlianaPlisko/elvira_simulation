@@ -188,6 +188,7 @@ services:
       - SIM_THINK=1000
       - SIM_URL_BASE=http://elvira.lib/books
       - SIM_ZIPF_ALPHA=0.9
+      - SIM_MODE=${SIM_MODE}
     networks:
       facultyA-net:
         ipv4_address: 192.168.1.50
@@ -210,6 +211,7 @@ services:
       - SIM_THINK=1000
       - SIM_URL_BASE=http://elvira.lib/books
       - SIM_ZIPF_ALPHA=0.9
+      - SIM_MODE=${SIM_MODE}
     networks:
       facultyB-net:
         ipv4_address: 192.168.2.50
@@ -232,6 +234,7 @@ services:
       - SIM_THINK=1000
       - SIM_URL_BASE=http://elvira.lib/books
       - SIM_ZIPF_ALPHA=0.9
+      - SIM_MODE=${SIM_MODE}
     networks:
       facultyC-net:
         ipv4_address: 192.168.3.50
@@ -254,6 +257,7 @@ services:
       - SIM_THINK=1000
       - SIM_URL_BASE=http://elvira.lib/books
       - SIM_ZIPF_ALPHA=0.9
+      - SIM_MODE=${SIM_MODE}
     networks:
       facultyD-net:
         ipv4_address: 192.168.4.50
@@ -276,6 +280,7 @@ services:
       - SIM_THINK=1000
       - SIM_URL_BASE=http://elvira.lib/books
       - SIM_ZIPF_ALPHA=0.9
+      - SIM_MODE=${SIM_MODE}
     networks:
       facultyE-net:
         ipv4_address: 192.168.5.50
