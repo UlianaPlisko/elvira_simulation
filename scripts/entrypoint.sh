@@ -55,7 +55,7 @@ fi
 
 # start node app in background (if built)
 if [ -f /app/dist/main.js ]; then
-  node /app/dist/main.js >> "${LOG_DIR}/central-manager.log" 2>&1 &
+  node /app/dist/main.js &
   echo "node started" >> "${LOG_DIR}/entrypoint.log"
 fi
 

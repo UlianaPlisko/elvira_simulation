@@ -41,13 +41,19 @@ const booksUsedBytes       = new promClient.Gauge({ name: 'central_books_used_by
 const booksUsedMb          = new promClient.Gauge({ name: 'central_books_used_mb',             help: 'Занято в /var/www/books (MB)' });
 const booksUtilPercent     = new promClient.Gauge({ name: 'central_books_util_percent',        help: 'Заполненность books (%)' });
 
+const centralPrecompressWall = new promClient.Gauge({ name: 'central_precompress_wall_seconds', help: 'Wall time for last precompress (s)' });
+const centralPrecompressCpu = new promClient.Gauge({ name: 'central_precompress_cpu_seconds', help: 'CPU time for last precompress (s)' });
+const centralPrecompressOriginalBytes = new promClient.Gauge({ name: 'central_precompress_original_bytes', help: 'Original bytes last precompress' });
+const centralPrecompressCompressedBytes = new promClient.Gauge({ name: 'central_precompress_compressed_bytes', help: 'Compressed bytes last precompress' });
+
 // Регистрация всех метрик
 [
   lambdaGauge, powerWattsGauge, energyTotalKwh, transitionsTotal,
   hostCpuPercent, containerCpuPercent, containerMemBytes, containerMemPercent,
   containerNetRxBytes, containerNetTxBytes, containerDiskRead, containerDiskWrite,
   containerPids, nginxConnections, nginxRequestsTotal, nginxRps,
-  booksUsedBytes, booksUsedMb, booksUtilPercent
+  booksUsedBytes, booksUsedMb, booksUtilPercent, centralPrecompressWall, centralPrecompressCpu,
+  centralPrecompressOriginalBytes, centralPrecompressCompressedBytes
 ].forEach(m => register.registerMetric(m));
 
 // ======================= Вспомогательная функция =======================
@@ -178,3 +184,7 @@ export async function resetMetrics() {
    booksUsedBytes, booksUsedMb, booksUtilPercent].forEach(g => g.set(0));
   console.log('Все метрики центрального узла сброшены');
 }
+
+export {
+  centralPrecompressWall, centralPrecompressCpu, centralPrecompressOriginalBytes, centralPrecompressCompressedBytes
+};
