@@ -35,9 +35,18 @@ def create_driver(remote_url: str):
     opts.add_argument('--window-size=1920,1080')
     opts.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36')
 
+    prefs = {
+        "plugins.always_open_pdf_externally": False,  # VERY IMPORTANT
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True
+    }
+
+    opts.add_experimental_option("prefs", prefs)
+
     # Headless mode
     if os.environ.get('HEADLESS', '1') not in ('0', 'false', 'False'):
         opts.add_argument('--headless=new')
+        opts.add_argument('--disable-features=PdfOopif')
 
     opts.set_capability('browserName', 'chrome')
 
