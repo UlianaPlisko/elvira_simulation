@@ -218,9 +218,10 @@ app.post('/usecase2/start', async (req, res) => {
     const strategy = Number(req.body.strategy ?? process.env.STRATEGY ?? 1);
     const algo = String(req.body.compression ?? process.env.COMPRESS_ALGO ?? 'gzip');
     const level = Number(req.body.level ?? process.env.COMPRESS_LEVEL ?? 6);
-    const file = String(req.body.file ?? 'book1.pdf'); // default to book1.pdf
+    const file = String(req.body.file ?? 'book1.pdf');
     console.log(`UC2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${file}`);
     const experiment_id = `uc2-${Date.now()}`;
+
     // 1) Precompress on central if needed
     let precomp: PrecompressResult | null = null;
     if (strategy !== 1) {
@@ -235,75 +236,100 @@ app.post('/usecase2/start', async (req, res) => {
         console.warn('[UC2] cannot set precompress gauges:', e);
       }
     }
-    // 2) Update central nginx config so central serves correct files (template -> active)
+
+    // 2) Update central nginx config
     const tplPath = '/etc/nginx/central.conf.template';
     let tpl = await fs.readFile(tplPath, 'utf8');
-    const booksAlias = strategy === 1 ? '/var/www/elvira/books' : '/var/www/books/compressed';
+    const booksAlias = strategy === 1 ? '/var/www/books' : '/var/www/books/compressed';
     const contentEncoding = strategy === 1 ? '' : algo;
     tpl = tpl.replace(/\${BOOKS_ALIAS}/g, booksAlias).replace(/\${CONTENT_ENCODING}/g, contentEncoding);
     tpl = tpl.replace(/\${STRATEGY}/g, String(strategy)).replace(/\${COMPRESS_ALGO}/g, String(algo));
-    // await fs.writeFile('/etc/nginx/nginx.conf', tpl, 'utf8');
-    // // reload nginx (if fails, try start)
     try {
-      // сначала тест конфига — покажет ошибки
       await exec('/usr/sbin/nginx -t');
-      // если тест успешен, посылаем reload
       await exec('/usr/sbin/nginx -s reload');
       console.log('[UC2] nginx reload ok');
     } catch (reloadErr) {
-      console.warn('[UC2] nginx config test/reload failed — не пытаюсь стартовать новый nginx. Проверьте /etc/nginx/nginx.conf и логи контейнера.', reloadErr);
-      // дополнительно попытаемся получить вывод проверки для диагностики
+      console.warn('[UC2] nginx config test/reload failed', reloadErr);
       try {
         const { stdout, stderr } = await exec('/usr/sbin/nginx -t || true');
         console.log('[UC2] nginx -t output:', stdout, stderr);
-      } catch (_) { /* игнорируем */ }
+      } catch (_) {}
     }
-    // 3) Force edge to fetch file from central to populate cache (cache-warm)
-    const edgeContainer = 'facultyA-edge'; // adapt if you later choose other faculty
+
+    // 3) Cache warm-up on edge
+    const edgeContainer = 'facultyA-edge';
     const curlCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
     try {
       const { stdout: curlOut } = await exec(curlCmd);
-      console.log('[UC2] cache-warm curl result:', (curlOut || '').trim());
+      console.log('[UC2] cache-warm curl result:', curlOut.trim());
     } catch (e) {
       console.warn('[UC2] cache-warm curl failed:', e);
     }
-    // short pause for cache write
     await new Promise(r => setTimeout(r, 800));
-    // 4) Run selenium for all strategies to get consistent client-side metrics (decompression only applies to strategy 3)
+
+    // 4) Run Selenium for client metrics
+    // 4) Run Selenium for client metrics
     let client_decompress_wall_ms = 0;
     let client_cpu_s = 0;
+    let client_decompress_start_ms = 0;
+    let client_decompress_end_ms = 0;
     try {
       await startUsecase2Client();
     } catch (e) {
       console.warn('[UC2] startUsecase2Client failed:', e);
     }
     try {
-      const seleniumCmd = `docker exec selenium-client python3 /scripts/run_selenium.py --url-base http://elvira.lib/books --file ${file} --strategy ${strategy} --report http://172.20.0.2:3100/usecase2/report`;      const { stdout: sOut } = await exec(seleniumCmd, { timeout: 120_000 });
-      const stdoutTrim = (sOut || '').trim();
+      const seleniumCmd = `docker exec selenium-client python3 /scripts/run_selenium.py --url-base http://elvira.lib/books --file ${file} --strategy ${strategy} --report http://172.20.0.2:3100/usecase2/report`;
+      console.log('[UC2] Running Selenium command:', seleniumCmd);
+      
+      const { stdout: sOut, stderr: sErr } = await exec(seleniumCmd, { timeout: 120_000 });
+      
+      // Логируем всё, что пришло от Selenium
+      console.log('[UC2] Selenium raw stdout:\n', sOut);
+      if (sErr) {
+        console.log('[UC2] Selenium stderr:\n', sErr);
+      }
+
+      const stdoutTrim = sOut.trim();
       let parsed: any = {};
+      
       if (stdoutTrim) {
         try {
           parsed = JSON.parse(stdoutTrim);
+          console.log('[UC2] Successfully parsed Selenium JSON:', parsed);
         } catch (parseErr) {
-          console.warn('[UC2] failed to parse selenium stdout as JSON:', parseErr);
-          parsed = {};
+          console.warn('[UC2] Failed to parse Selenium stdout as JSON:', parseErr);
+          console.warn('[UC2] Raw stdout content (for debugging):', stdoutTrim);
         }
+      } else {
+        console.warn('[UC2] Selenium stdout is empty');
       }
-      // Only take decompression metrics for strategy 3; for others, set to 0 (but still run selenium for potential other metrics or baseline)
-      if (strategy === 3) {
+
+      // Пока используем только для strategy 3 (client decompression)
+      if (strategy === 3 && parsed.success) {
         client_decompress_wall_ms = Number(parsed?.metrics?.client_duration_ms ?? 0);
         client_cpu_s = Number(parsed?.metrics?.client_cpu_s ?? 0);
+        client_decompress_start_ms = Number(parsed?.metrics?.decompress_start_ms ?? 0);
+        client_decompress_end_ms = Number(parsed?.metrics?.decompress_end_ms ?? 0);
+
+        if (client_decompress_end_ms > client_decompress_start_ms) {
+          const duration_s = Math.ceil((client_decompress_end_ms - client_decompress_start_ms) / 1000);
+          const qInc = `increase(docker_cpu_usage_total{containerName="selenium-client"}[${duration_s}s])`;
+          const incVal = await promScalar(qInc);
+          client_cpu_s = Math.max(client_cpu_s, incVal);
+        }
       }
     } catch (e) {
-      console.warn('[UC2] selenium run failed:', e);
+      console.warn('[UC2] Selenium run failed:', e);
     }
-    // Stop the client after run to save resources when simulation ends
+    // Uncomment if you want to stop after each run
     // try {
     //   await stopUsecase2Client();
     // } catch (e) {
     //   console.warn('[UC2] stopUsecase2Client failed:', e);
     // }
-    // Measure edge decompression only for strategy 2
+
+    // Measure edge decompression for strategy 2
     let edge_decompress_cpu_s = 0;
     let edge_decompress_wall_s = 0;
     const promQ = async (q: string) => {
@@ -315,36 +341,34 @@ app.post('/usecase2/start', async (req, res) => {
       }
     };
     if (strategy === 2) {
-      // measured wall time from curl output
       try {
         const curlCmd2 = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
         const { stdout: curlOut2 } = await exec(curlCmd2);
-        const outTrim = (curlOut2 || '').trim();
-        const parts = outTrim.split(/\s+/); // ['200', '0.123']
-        // safe parse: parts[1] может быть undefined -> используем '0' fallback
-        edge_decompress_wall_s = Number(parts[1] ?? '0') || 0.5;
+        const parts = curlOut2.trim().split(/\s+/);
+        edge_decompress_wall_s = Number(parts[1] ?? 0) || 0.5;
       } catch (e) {
-        edge_decompress_wall_s = 0.5; // fallback
+        edge_decompress_wall_s = 0.5;
       }
-      // Prometheus increase(...) for CPU seconds in a short window (adjust metric name if necessary)
       try {
         const qInc = `increase(docker_cpu_usage_total{containerName="facultyA-edge"}[30s])`;
-        const incVal = await promQ(qInc);
-        edge_decompress_cpu_s = Math.max(0, incVal);
+        edge_decompress_cpu_s = Math.max(0, await promQ(qInc));
       } catch (e) {
         console.warn('[UC2] prom query for edge cpu increase failed:', e);
       }
     }
-    // 5) Compute transfer energy (static approx, fixed to match strategy transfers)
+
+    // 5) Compute transfer energy
     const originalSize = precomp ? precomp.originalBytes : (await fs.stat(`/var/www/books/${file}`)).size;
     const compressedSize = precomp ? precomp.compressedBytes : 0;
     const STATIC_TRANSFER_MJ_PER_BYTE = Number(process.env.STATIC_TRANSFER_MJ_PER_BYTE) || 0.00005;
     const central_to_edge_bytes = strategy === 1 ? originalSize : compressedSize;
     const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize);
     const transfer_energy_mJ = (central_to_edge_bytes + edge_to_client_bytes) * STATIC_TRANSFER_MJ_PER_BYTE;
-    // 6) Central compression energy (approx from cpu seconds)
+
+    // 6) Central compression energy
     const CPU_WATTS = Number(process.env.CPU_WATTS) || 15;
     const central_compress_energy_mJ = precomp ? precomp.central_compress_cpu_s * CPU_WATTS * 1000 : 0;
+
     // Assemble result
     const result = {
       timestamp: new Date().toISOString(),
@@ -367,7 +391,7 @@ app.post('/usecase2/start', async (req, res) => {
         central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6))
       }
     };
-    // persist run
+    // Persist run
     await fs.appendFile('/var/log/central/uc2_runs.jsonl', JSON.stringify(result) + '\n');
     return res.json(result);
   } catch (err: any) {
@@ -375,7 +399,6 @@ app.post('/usecase2/start', async (req, res) => {
     return res.status(500).json({ error: err.message || String(err) });
   }
 });
-
 
 // Decision loop (можно потом заменить на ML)
 async function performPrefetch(_opts?: any) {
