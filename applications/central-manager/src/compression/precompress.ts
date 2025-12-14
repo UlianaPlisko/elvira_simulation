@@ -26,7 +26,7 @@ export async function precompressFile(fileRelative: string, algo: string, level:
   const cpuStart = process.cpuUsage();
 
   let compressed: Buffer;
-  let outName = `${path.basename(fileRelative)}.${algo}`;
+  let outName = fileRelative;
 
   if (algo === 'gzip') {
     compressed = gzipSync(data, { level });

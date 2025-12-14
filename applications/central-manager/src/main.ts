@@ -222,14 +222,18 @@ app.post('/usecase2/start', async (req, res) => {
     const strategy = Number(req.body.strategy ?? process.env.STRATEGY ?? 1) as Strategy;
     const algo = String(req.body.compression ?? process.env.COMPRESS_ALGO ?? 'gzip') as Algo;
     const level = Number(req.body.level ?? process.env.COMPRESS_LEVEL ?? 6);
-    const file = String(req.body.file ?? 'book1.pdf');
-    console.log(`UC2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${file}`);
-    const experiment_id = `uc2-${Date.now()}`;
+    const iterations = Number(req.body.iterations ?? process.env.ITERATIONS ?? 1);
 
-    // 1) Precompress on central if needed
+    console.log(`uc2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${req.body.file ?? 'book1.pdf'}, iterations=${iterations}`);
+
+    const file = String(req.body.file ?? 'book1.pdf');
+
+    const allResults: any[] = [];
+
+    // === подготовка — один раз для всех итераций ===
     let precomp: PrecompressResult | null = null;
     if (strategy !== 1) {
-      console.log('[UC2] Precompressing on central...', file, algo, level);
+      console.log('[uc2] precompressing on central...', file, algo, level);
       precomp = await precompressFile(file, algo, level);
       try {
         centralPrecompressWall.set(precomp.central_compress_wall_s);
@@ -237,96 +241,44 @@ app.post('/usecase2/start', async (req, res) => {
         centralPrecompressOriginalBytes.set(precomp.originalBytes);
         centralPrecompressCompressedBytes.set(precomp.compressedBytes);
       } catch (e) {
-        console.warn('[UC2] cannot set precompress gauges:', e);
+        console.warn('[uc2] cannot set precompress gauges:', e);
       }
     }
 
     try {
       await applyCentralNginxConfig(strategy, algo);
-
       await applyEdgeNginxConfig(strategy === 2);
     } catch (e: any) {
-      console.error('[UC2] Failed to apply nginx configs:', e);
+      console.error('[uc2] failed to apply nginx configs:', e);
       throw e;
     }
 
-    // 3) Cache warm-up on edge
+    // cache warm-up один раз
     const edgeContainer = 'facultyA-edge';
-    const curlCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
+    const warmCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
     try {
-      const { stdout: curlOut } = await exec(curlCmd);
-      console.log('[UC2] cache-warm curl result:', curlOut.trim());
+      const { stdout } = await exec(warmCmd);
+      console.log('[uc2] cache-warm result:', stdout.trim());
     } catch (e) {
-      console.warn('[UC2] cache-warm curl failed:', e);
+      console.warn('[uc2] cache-warm failed:', e);
     }
     await new Promise(r => setTimeout(r, 800));
 
-    // 4) Run Selenium for client metrics
-    // 4) Run Selenium for client metrics
-    let client_decompress_wall_ms = 0;
-    let client_cpu_s = 0;
-    let client_decompress_start_ms = 0;
-    let client_decompress_end_ms = 0;
-    try {
-      await startUsecase2Client();
-    } catch (e) {
-      console.warn('[UC2] startUsecase2Client failed:', e);
-    }
-    try {
-      const seleniumCmd = `docker exec selenium-client python3 /scripts/run_selenium.py --url-base http://elvira.lib/books --file ${file} --strategy ${strategy} --report http://172.20.0.2:3100/usecase2/report`;
-      console.log('[UC2] Running Selenium command:', seleniumCmd);
-      
-      const { stdout: sOut, stderr: sErr } = await exec(seleniumCmd, { timeout: 120_000 });
-      
-      // Логируем всё, что пришло от Selenium
-      console.log('[UC2] Selenium raw stdout:\n', sOut);
-      if (sErr) {
-        console.log('[UC2] Selenium stderr:\n', sErr);
-      }
+    // === константы для энергии ===
+    const originalSize = precomp ? precomp.originalBytes : (await fs.stat(`/var/www/books/${file}`)).size;
+    const compressedSize = precomp ? precomp.compressedBytes : originalSize;
 
-      const stdoutTrim = sOut.trim();
-      let parsed: any = {};
-      
-      if (stdoutTrim) {
-        try {
-          parsed = JSON.parse(stdoutTrim);
-          console.log('[UC2] Successfully parsed Selenium JSON:', parsed);
-        } catch (parseErr) {
-          console.warn('[UC2] Failed to parse Selenium stdout as JSON:', parseErr);
-          console.warn('[UC2] Raw stdout content (for debugging):', stdoutTrim);
-        }
-      } else {
-        console.warn('[UC2] Selenium stdout is empty');
-      }
+    const STATIC_TRANSFER_MJ_PER_BYTE = Number(process.env.STATIC_TRANSFER_MJ_PER_BYTE) || 0.00005;
+    const CPU_WATTS = Number(process.env.CPU_WATTS) || 15;
 
-      // Пока используем только для strategy 3 (client decompression)
-      if (strategy === 3 && parsed.success) {
-        client_decompress_wall_ms = Number(parsed?.metrics?.client_duration_ms ?? 0);
-        client_cpu_s = Number(parsed?.metrics?.client_cpu_s ?? 0);
-        client_decompress_start_ms = Number(parsed?.metrics?.decompress_start_ms ?? 0);
-        client_decompress_end_ms = Number(parsed?.metrics?.decompress_end_ms ?? 0);
+    const central_to_edge_bytes = strategy === 1 ? originalSize : compressedSize;
+    const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize);
+    const transfer_energy_mJ = (central_to_edge_bytes + edge_to_client_bytes) * STATIC_TRANSFER_MJ_PER_BYTE;
 
-        if (client_decompress_end_ms > client_decompress_start_ms) {
-          const duration_s = Math.ceil((client_decompress_end_ms - client_decompress_start_ms) / 1000);
-          const qInc = `increase(docker_cpu_usage_total{containerName="selenium-client"}[${duration_s}s])`;
-          const incVal = await promScalar(qInc);
-          client_cpu_s = Math.max(client_cpu_s, incVal);
-        }
-      }
-    } catch (e) {
-      console.warn('[UC2] Selenium run failed:', e);
-    }
-    // Uncomment if you want to stop after each run
-    try {
-      await stopUsecase2Client();
-    } catch (e) {
-      console.warn('[UC2] stopUsecase2Client failed:', e);
-    }
+    // one-time central compression energy (будет амортизировано позже в анализе)
+    const central_compress_energy_mJ = precomp ? precomp.central_compress_cpu_s * CPU_WATTS * 1000 : 0;
 
-    // Measure edge decompression for strategy 2
-    let edge_decompress_cpu_s = 0;
-    let edge_decompress_wall_s = 0;
-    const promQ = async (q: string) => {
+    const promQuery = async (q: string) => {
       try {
         const r = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, { params: { query: q }, timeout: 5000 });
         return parseFloat(r.data?.data?.result?.[0]?.value?.[1] ?? '0');
@@ -334,65 +286,258 @@ app.post('/usecase2/start', async (req, res) => {
         return 0;
       }
     };
-    if (strategy === 2) {
+
+    // === цикл по итерациям ===
+    for (let i = 0; i < iterations; i++) {
+      console.log(`[uc2] iteration ${i + 1}/${iterations}`);
+
+      // переменные для этой итерации (дефолты)
+      let pdf_processing_duration_ms = 0;
+      let client_was_compressed = false;
+      let client_compression_ratio = 1.0;
+      let client_cpu_s = 0;
+      let edge_decompress_cpu_s = 0;
+      let edge_decompress_wall_s = 0;
+
+      // поля, получаемые из selenium
+      let parsed: any = null;
+      let client_decompress_ms: number | null = null;
+      let network_transfer_ms: number | null = null;
+      let transfer_size_bytes = 0;
+
+      // === selenium (client) ===
       try {
-        const curlCmd2 = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
-        const { stdout: curlOut2 } = await exec(curlCmd2);
-        const parts = curlOut2.trim().split(/\s+/);
-        edge_decompress_wall_s = Number(parts[1] ?? 0) || 0.5;
+        await startUsecase2Client();
       } catch (e) {
-        edge_decompress_wall_s = 0.5;
+        console.warn('[uc2] startusecase2client failed:', e);
       }
+
       try {
-        const qInc = `increase(docker_cpu_usage_total{containerName="facultyA-edge"}[30s])`;
-        edge_decompress_cpu_s = Math.max(0, await promQ(qInc));
+        const seleniumCmd = `docker exec selenium-client python3 /scripts/run_selenium.py --url-base http://elvira.lib/books --file ${file} --strategy ${strategy}`;
+        const { stdout: sOut } = await exec(seleniumCmd, { timeout: 120_000 });
+        try {
+          parsed = JSON.parse(sOut.trim());
+        } catch (e) {
+          console.warn('[uc2] failed to parse selenium output json:', e);
+          parsed = null;
+        }
+
+        if (parsed && parsed.success && parsed.metrics) {
+          // базовые значения от клиента
+          pdf_processing_duration_ms = parsed.metrics.pdf_processing_duration_ms ?? 0;
+
+          // новые значения, которые возвращает python
+          client_decompress_ms = parsed.metrics.client_decompress_ms ?? null;
+          network_transfer_ms = parsed.metrics.network_transfer_ms ?? null;
+          transfer_size_bytes = parsed.metrics.transfer_size_bytes ?? parsed.metrics.encoded_body_size_bytes ?? 0;
+
+          client_was_compressed = parsed.metrics.was_compressed ?? false;
+          client_compression_ratio = parsed.metrics.compression_ratio ?? 1.0;
+
+          // выбор окна для prom query: используем время декомпрессии на клиенте (если есть),
+          // иначе fallback на общее время обработки pdf
+          let probe_ms = client_decompress_ms ?? pdf_processing_duration_ms ?? 0;
+          // добавляем небольшой запас в 3 сек, чтобы прометей успел захватить все расходы
+          let duration_s = Math.max(1, Math.ceil(probe_ms / 1000) + 3);
+
+          // --- client cpu: используем probe window только для strategy 3 (когда декомпрессия в браузере)
+          if (probe_ms > 0 && strategy === 3) {
+            const qInc = `increase(docker_cpu_usage_total{containerName="selenium-client"}[${duration_s}s])`;
+            client_cpu_s = await promQuery(qInc);
+          } else {
+            client_cpu_s = 0;
+          }
+
+          // --- дополнительные prom-запросы: сеть клиента (rx) за то же окно
+          let client_net_rx_bytes = 0;
+          try {
+            const qRx = `increase(docker_network_received_bytes{containerName="selenium-client"}[${duration_s}s])`;
+            client_net_rx_bytes = Math.max(0, await promQuery(qRx));
+          } catch (e) {
+            console.warn('[uc2] prom query client net failed:', e);
+            client_net_rx_bytes = 0;
+          }
+
+          // --- если стратегия 2, edge будет декомпрессировать: собираем edge метрики
+          let edge_cpu_s_prom = 0;
+          let edge_net_tx_bytes = 0;
+          let edge_network_energy_mJ = 0;
+          if (strategy === 2) {
+            try {
+              // окно для edge: используем edge_decompress_wall_s если известен, иначе 10s
+              const edgeWindow = Math.max(5, Math.ceil(edge_decompress_wall_s || 10));
+              const qEdgeCpu = `increase(docker_cpu_usage_total{containerName="facultyA-edge"}[${edgeWindow}s])`;
+              const qEdgeTx = `increase(docker_network_transmit_bytes{containerName="facultyA-edge"}[${edgeWindow}s])`;
+              edge_cpu_s_prom = Math.max(0, await promQuery(qEdgeCpu));
+              edge_net_tx_bytes = Math.max(0, await promQuery(qEdgeTx));
+              edge_network_energy_mJ = edge_net_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+            } catch (e) {
+              console.warn('[uc2] prom query edge metrics failed:', e);
+              edge_cpu_s_prom = 0;
+              edge_net_tx_bytes = 0;
+              edge_network_energy_mJ = 0;
+            }
+          }
+
+          // --- конвертация в энергию
+          const client_cpu_energy_mJ = client_cpu_s * CPU_WATTS * 1000;
+          const client_network_energy_mJ = (client_net_rx_bytes || 0) * STATIC_TRANSFER_MJ_PER_BYTE;
+
+          // запомним некоторые поля локально (для логирования)
+          // (iterationResult будет записан ниже)
+          // добавим метрики в объект дальше
+          // (обновление iterationResult.metrics произойдёт после конца ветки)
+          // сохраняем значения в переменные, далее используем их при сборке iterationResult
+          // оставим client_net_rx_bytes, edge_cpu_s_prom, edge_net_tx_bytes в области видимости
+          // (они будут добавлены в iterationResult ниже)
+          // note: прометей-окна уже выполнены
+          // запомним дополнительные значения:
+          (parsed as any)._internal_for_uc2 = {
+            duration_s,
+            client_net_rx_bytes,
+            client_cpu_energy_mJ,
+            client_network_energy_mJ,
+            edge_cpu_s_prom,
+            edge_net_tx_bytes,
+            edge_network_energy_mJ
+          };
+        } else {
+          console.warn('[uc2] selenium returned no usable metrics or failed');
+        }
       } catch (e) {
-        console.warn('[UC2] prom query for edge cpu increase failed:', e);
+        console.warn('[uc2] selenium failed:', e);
+      } finally {
+        // можно не останавливать контейнер
       }
+
+      // === edge decompression (strategy 2) ===
+      if (strategy === 2) {
+        try {
+          const curlCmd2 = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
+          const { stdout } = await exec(curlCmd2);
+          const parts = stdout.trim().split(/\s+/);
+          edge_decompress_wall_s = Number(parts[1] ?? 0) || 0.5;
+        } catch (e) {
+          edge_decompress_wall_s = 0.5;
+        }
+
+        try {
+          const qInc = `increase(docker_cpu_usage_total{containerName="facultyA-edge"}[10s])`;
+          edge_decompress_cpu_s = Math.max(0, await promQuery(qInc));
+        } catch (e) {
+          console.warn('[uc2] edge cpu query failed:', e);
+        }
+      }
+
+      // === энергия на декомпрессию ===
+      const client_decompress_energy_mJ = strategy === 3 ? client_cpu_s * CPU_WATTS * 1000 : 0;
+      const edge_decompress_energy_mJ = strategy === 2 ? edge_decompress_cpu_s * CPU_WATTS * 1000 : 0;
+
+      // === один результат итерации ===
+      const iterationResult: any = {
+        iteration: i + 1,
+        timestamp: new Date().toISOString(),
+        experiment_id: `uc2-${Date.now()}-${i}`,
+        scenario: `uc2-s${strategy}`,
+        strategy,
+        compression: algo,
+        compression_level: level,
+        file,
+        metrics: {
+          original_bytes: originalSize,
+          compressed_bytes: compressedSize,
+          // сетевые (central->edge + edge->client)
+          transfer_energy_mJ: Number(transfer_energy_mJ.toFixed(6)),
+          // central
+          central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6)),
+          central_compress_cpu_s: precomp ? precomp.central_compress_cpu_s : 0,
+          // edge
+          edge_decompress_energy_mJ: Number(edge_decompress_energy_mJ.toFixed(6)),
+          edge_decompress_cpu_s: Number(edge_decompress_cpu_s),
+          edge_decompress_wall_s: Number(edge_decompress_wall_s),
+          // client
+          client_decompress_energy_mJ: Number(client_decompress_energy_mJ.toFixed(6)),
+          client_cpu_s: Number(client_cpu_s),
+          pdf_processing_duration_ms: pdf_processing_duration_ms,
+          client_was_compressed: client_was_compressed,
+          client_compression_ratio: Number(client_compression_ratio.toFixed(3)),
+          // дополнительные поля из selenium
+          client_decompress_ms: client_decompress_ms ?? null,
+          network_transfer_ms: network_transfer_ms ?? null,
+          transfer_size_bytes: Number(transfer_size_bytes || 0)
+        }
+      };
+
+      // если selenium вернул внутренние доп. значения - поднимем их в metrics
+      if (parsed && (parsed as any)._internal_for_uc2) {
+        const intern = (parsed as any)._internal_for_uc2;
+        iterationResult.metrics.client_network_rx_bytes = Number(intern.client_net_rx_bytes || 0);
+        iterationResult.metrics.client_cpu_energy_mJ = Number((intern.client_cpu_energy_mJ || 0).toFixed(6));
+        iterationResult.metrics.client_network_energy_mJ = Number((intern.client_network_energy_mJ || 0).toFixed(6));
+
+        // если стратегия 2, добавим edge-поля, либо уже соберём их отдельно ниже
+        iterationResult.metrics.edge_cpu_s = Number(intern.edge_cpu_s_prom || 0);
+        iterationResult.metrics.edge_network_tx_bytes = Number(intern.edge_net_tx_bytes || 0);
+        iterationResult.metrics.edge_network_energy_mJ = Number((intern.edge_network_energy_mJ || 0).toFixed(6));
+      } else {
+        // если нет parsed internals, положим 0
+        iterationResult.metrics.client_network_rx_bytes = 0;
+        iterationResult.metrics.client_cpu_energy_mJ = 0;
+        iterationResult.metrics.client_network_energy_mJ = 0;
+      }
+
+      // также положим edge prom-значения, если ранее собрали через prom
+      if (strategy === 2) {
+        iterationResult.metrics.edge_cpu_s = Number(edge_decompress_cpu_s || iterationResult.metrics.edge_cpu_s || 0);
+        iterationResult.metrics.edge_cpu_energy_mJ = Number(((iterationResult.metrics.edge_cpu_s || 0) * CPU_WATTS * 1000).toFixed(6));
+        // edge_network_* уже может быть записан выше from intern; если нет - оставим 0
+        iterationResult.metrics.edge_network_tx_bytes = Number(iterationResult.metrics.edge_network_tx_bytes || 0);
+        iterationResult.metrics.edge_network_energy_mJ = Number((iterationResult.metrics.edge_network_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE).toFixed(6));
+      }
+
+      allResults.push(iterationResult);
+      await fs.appendFile('/var/log/central/uc2_runs.jsonl', JSON.stringify(iterationResult) + '\n');
     }
 
-    // 5) Compute transfer energy
-    const originalSize = precomp ? precomp.originalBytes : (await fs.stat(`/var/www/books/${file}`)).size;
-    const compressedSize = precomp ? precomp.compressedBytes : 0;
-    const STATIC_TRANSFER_MJ_PER_BYTE = Number(process.env.STATIC_TRANSFER_MJ_PER_BYTE) || 0.00005;
-    const central_to_edge_bytes = strategy === 1 ? originalSize : compressedSize;
-    const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize);
-    const transfer_energy_mJ = (central_to_edge_bytes + edge_to_client_bytes) * STATIC_TRANSFER_MJ_PER_BYTE;
+    // === summary для ответа ===
+    const avg = (key: string) => {
+      const vals = allResults.map(r => r.metrics[key]).filter(v => typeof v === 'number');
+      return vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+    };
 
-    // 6) Central compression energy
-    const CPU_WATTS = Number(process.env.CPU_WATTS) || 15;
-    const central_compress_energy_mJ = precomp ? precomp.central_compress_cpu_s * CPU_WATTS * 1000 : 0;
+    const total_energy_mJ_avg = avg('transfer_energy_mJ') +
+                                avg('central_compress_energy_mJ') +
+                                avg('edge_decompress_energy_mJ') +
+                                avg('client_decompress_energy_mJ');
 
-    // Assemble result
-    const result = {
-      timestamp: new Date().toISOString(),
-      experiment_id,
-      scenario: `UC2-S${strategy}`,
+    const summary = {
       strategy,
-      compression: algo,
-      compression_level: level,
+      algo,
+      level,
       file,
-      metrics: {
-        original_bytes: originalSize,
-        compressed_bytes: compressedSize,
-        central_compress_cpu_s: precomp ? precomp.central_compress_cpu_s : 0,
-        central_compress_wall_s: precomp ? precomp.central_compress_wall_s : 0,
-        edge_decompress_cpu_s: Number(edge_decompress_cpu_s),
-        edge_decompress_wall_s: Number(edge_decompress_wall_s),
-        client_decompress_wall_ms: Number(client_decompress_wall_ms),
-        client_cpu_s: Number(client_cpu_s),
-        transfer_energy_mJ: Number(transfer_energy_mJ.toFixed(6)),
-        central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6))
+      iterations,
+      average_metrics: {
+        total_energy_mJ: Number(total_energy_mJ_avg.toFixed(6)),
+        transfer_energy_mJ: Number(avg('transfer_energy_mJ').toFixed(6)),
+        central_compress_energy_mJ: Number(avg('central_compress_energy_mJ').toFixed(6)),
+        edge_decompress_energy_mJ: Number(avg('edge_decompress_energy_mJ').toFixed(6)),
+        client_decompress_energy_mJ: Number(avg('client_decompress_energy_mJ').toFixed(6)),
+        compression_ratio: Number(avg('client_compression_ratio').toFixed(3)),
+        pdf_processing_duration_ms: Number(avg('pdf_processing_duration_ms').toFixed(1))
       }
     };
-    // Persist run
-    await fs.appendFile('/var/log/central/uc2_runs.jsonl', JSON.stringify(result) + '\n');
-    return res.json(result);
+
+    res.json({
+      summary,
+      iterations_results: allResults
+    });
+
   } catch (err: any) {
     console.error('/usecase2/start error:', err);
-    return res.status(500).json({ error: err.message || String(err) });
+    res.status(500).json({ error: err.message || String(err) });
   }
 });
+
 
 // Decision loop (можно потом заменить на ML)
 async function performPrefetch(_opts?: any) {
