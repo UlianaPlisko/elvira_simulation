@@ -34,6 +34,7 @@ def create_driver(remote_url: str):
 
     # Window and user-agent
     opts.add_argument('--window-size=1920,1080')
+    opts.add_argument("--disable-features=AcceptCHFrame")
     opts.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36')
 
     # Headless via env var

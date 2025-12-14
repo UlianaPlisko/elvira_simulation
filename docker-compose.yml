@@ -28,12 +28,12 @@ services:
   facultyA-edge:
     build:
       context: .
-      dockerfile: applications/edge-managers/facultyA/Dockerfile
-    image: elvira-simulation-facultya-edge
+      dockerfile: applications/edge-managers/faculty-edge/Dockerfile
+    image: elvira-simulation-edge:facultya
     container_name: facultyA-edge
     ports:
-    - "8081:80"  # Existing
-    - "3001:3001"
+      - "8081:80"
+      - "3001:3001"
     volumes:
       - ./data:/var/www/cache:ro
     networks:
@@ -45,15 +45,18 @@ services:
       - central-nginx
     privileged: true
     environment:
+      - FACULTY=facultyA
+      - CONTROL_PORT=3001
       - STRATEGY=1
       - COMPRESS_ALGO=gzip
       - COMPRESS_LEVEL=6
     profiles: []
+
   facultyB-edge:
     build:
       context: .
-      dockerfile: applications/edge-managers/facultyB/Dockerfile
-    image: elvira-simulation-facultyb-edge
+      dockerfile: applications/edge-managers/faculty-edge/Dockerfile
+    image: elvira-simulation-edge:facultyb
     container_name: facultyB-edge
     ports:
       - "8082:80"
@@ -69,16 +72,18 @@ services:
       - central-nginx
     privileged: true
     environment:
+      - FACULTY=facultyB
+      - CONTROL_PORT=3002
       - STRATEGY=1
       - COMPRESS_ALGO=gzip
       - COMPRESS_LEVEL=6
     profiles: []
-  
+
   facultyC-edge:
     build:
       context: .
-      dockerfile: applications/edge-managers/facultyC/Dockerfile
-    image: elvira-simulation-facultyc-edge
+      dockerfile: applications/edge-managers/faculty-edge/Dockerfile
+    image: elvira-simulation-edge:facultyc
     container_name: facultyC-edge
     ports:
       - "8083:80"
@@ -94,6 +99,8 @@ services:
       - central-nginx
     privileged: true
     environment:
+      - FACULTY=facultyC
+      - CONTROL_PORT=3003
       - STRATEGY=1
       - COMPRESS_ALGO=gzip
       - COMPRESS_LEVEL=6
@@ -102,8 +109,8 @@ services:
   facultyD-edge:
     build:
       context: .
-      dockerfile: applications/edge-managers/facultyD/Dockerfile
-    image: elvira-simulation-facultyd-edge
+      dockerfile: applications/edge-managers/faculty-edge/Dockerfile
+    image: elvira-simulation-edge:facultyd
     container_name: facultyD-edge
     ports:
       - "8084:80"
@@ -119,6 +126,8 @@ services:
       - central-nginx
     privileged: true
     environment:
+      - FACULTY=facultyD
+      - CONTROL_PORT=3004
       - STRATEGY=1
       - COMPRESS_ALGO=gzip
       - COMPRESS_LEVEL=6
@@ -127,8 +136,8 @@ services:
   facultyE-edge:
     build:
       context: .
-      dockerfile: applications/edge-managers/facultye/Dockerfile
-    image: elvira-simulation-facultye-edge
+      dockerfile: applications/edge-managers/faculty-edge/Dockerfile
+    image: elvira-simulation-edge:facultye
     container_name: facultyE-edge
     ports:
       - "8085:80"
@@ -144,6 +153,8 @@ services:
       - central-nginx
     privileged: true
     environment:
+      - FACULTY=facultyE
+      - CONTROL_PORT=3005
       - STRATEGY=1
       - COMPRESS_ALGO=gzip
       - COMPRESS_LEVEL=6
