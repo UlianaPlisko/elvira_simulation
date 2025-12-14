@@ -6,6 +6,19 @@ mkdir -p "${LOG_DIR}"
 chmod 755 "${LOG_DIR}"
 echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ') ENTRYPOINT START" >> "${LOG_DIR}/entrypoint.log"
 
+mkdir -p /var/log/nginx
+chown nginx:nginx /var/log/nginx
+chmod 755 /var/log/nginx
+
+rm -f /var/log/nginx/access.log /var/log/nginx/error.log
+
+
+touch /var/log/nginx/access.log /var/log/nginx/error.log
+chown nginx:nginx /var/log/nginx/access.log /var/log/nginx/error.log
+chmod 644 /var/log/nginx/*.log
+
+echo "Fixed nginx log files: created real files instead of symlinks to /dev/*" >> "${LOG_DIR}/entrypoint.log"
+
 TEMPLATE=/etc/nginx/central.conf.template
 OUT=/etc/nginx/nginx.conf
 

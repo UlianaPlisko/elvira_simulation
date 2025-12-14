@@ -5,7 +5,7 @@ import { gzipSync, brotliCompressSync } from 'zlib';
 import { performance } from 'perf_hooks';
 
 const BOOKS_DIR = '/var/www/books';
-const COMPRESSED_DIR = '/var/www/books/compressed';
+const COMPRESSED_DIR = '/var/compressed-books';
 
 export type PrecompressResult = {
   originalBytes: number;
@@ -26,7 +26,7 @@ export async function precompressFile(fileRelative: string, algo: string, level:
   const cpuStart = process.cpuUsage();
 
   let compressed: Buffer;
-  let outName = `${fileRelative}.${algo}`;
+  let outName = `${path.basename(fileRelative)}.${algo}`;
 
   if (algo === 'gzip') {
     compressed = gzipSync(data, { level });

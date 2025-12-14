@@ -8,6 +8,7 @@ import {
   centralPrecompressOriginalBytes,
   centralPrecompressCompressedBytes
 } from './monitoring/metrics';
+import { applyCentralNginxConfig, applyEdgeNginxConfig } from './control/nginxConfigControl';
 console.log('🚀 Central metrics ULTRA загружены');
 import CONFIG from './config';
 import express from 'express';
@@ -213,10 +214,13 @@ app.get('/simulator/status', async (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+export type Strategy = 1 | 2 | 3;
+export type Algo = 'gzip' | 'brotli';
+
 app.post('/usecase2/start', async (req, res) => {
   try {
-    const strategy = Number(req.body.strategy ?? process.env.STRATEGY ?? 1);
-    const algo = String(req.body.compression ?? process.env.COMPRESS_ALGO ?? 'gzip');
+    const strategy = Number(req.body.strategy ?? process.env.STRATEGY ?? 1) as Strategy;
+    const algo = String(req.body.compression ?? process.env.COMPRESS_ALGO ?? 'gzip') as Algo;
     const level = Number(req.body.level ?? process.env.COMPRESS_LEVEL ?? 6);
     const file = String(req.body.file ?? 'book1.pdf');
     console.log(`UC2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${file}`);
@@ -237,23 +241,13 @@ app.post('/usecase2/start', async (req, res) => {
       }
     }
 
-    // 2) Update central nginx config
-    const tplPath = '/etc/nginx/central.conf.template';
-    let tpl = await fs.readFile(tplPath, 'utf8');
-    const booksAlias = strategy === 1 ? '/var/www/books' : '/var/www/books/compressed';
-    const contentEncoding = strategy === 1 ? '' : algo;
-    tpl = tpl.replace(/\${BOOKS_ALIAS}/g, booksAlias).replace(/\${CONTENT_ENCODING}/g, contentEncoding);
-    tpl = tpl.replace(/\${STRATEGY}/g, String(strategy)).replace(/\${COMPRESS_ALGO}/g, String(algo));
     try {
-      await exec('/usr/sbin/nginx -t');
-      await exec('/usr/sbin/nginx -s reload');
-      console.log('[UC2] nginx reload ok');
-    } catch (reloadErr) {
-      console.warn('[UC2] nginx config test/reload failed', reloadErr);
-      try {
-        const { stdout, stderr } = await exec('/usr/sbin/nginx -t || true');
-        console.log('[UC2] nginx -t output:', stdout, stderr);
-      } catch (_) {}
+      await applyCentralNginxConfig(strategy, algo);
+
+      await applyEdgeNginxConfig(strategy === 2);
+    } catch (e: any) {
+      console.error('[UC2] Failed to apply nginx configs:', e);
+      throw e;
     }
 
     // 3) Cache warm-up on edge
@@ -323,11 +317,11 @@ app.post('/usecase2/start', async (req, res) => {
       console.warn('[UC2] Selenium run failed:', e);
     }
     // Uncomment if you want to stop after each run
-    // try {
-    //   await stopUsecase2Client();
-    // } catch (e) {
-    //   console.warn('[UC2] stopUsecase2Client failed:', e);
-    // }
+    try {
+      await stopUsecase2Client();
+    } catch (e) {
+      console.warn('[UC2] stopUsecase2Client failed:', e);
+    }
 
     // Measure edge decompression for strategy 2
     let edge_decompress_cpu_s = 0;

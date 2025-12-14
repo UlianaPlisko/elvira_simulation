@@ -31,9 +31,11 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repos
 
 # nginx config и статический контент
 COPY infra/nginx/central.conf.template /etc/nginx/central.conf.template
-RUN mkdir -p /var/www/elvira/books && \
-    chown -R nginx:nginx /var/www/elvira /usr/share/nginx/html || true
-COPY mock-content/ /var/www/elvira/books/
+
+RUN mkdir -p /var/www/books && \
+    mkdir -p /var/www/books/compressed && \  
+    mkdir -p /var/compressed-books && \      
+    chown -R nginx:nginx /var/www/books /var/compressed-books
 
 # Копируем собранное приложение и его зависимости из builder
 COPY --from=builder /app/dist /app/dist
