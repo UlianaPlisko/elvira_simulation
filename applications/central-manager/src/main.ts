@@ -1,5 +1,6 @@
 // applications/central-manager/src/main.ts 
 import './monitoring/metrics';
+import { setDnsMode} from './control/dnsControl';
 import { startUsecase2Client, stopUsecase2Client } from './control/simulatorControl';
 import { precompressFile, PrecompressResult } from './compression/precompress'
 import {
@@ -493,6 +494,24 @@ app.post('/usecase2/start', async (req, res) => {
 async function performPrefetch(_opts?: any) {
   console.log('Prefetch triggered manually');
 }
+
+app.post('/switch-to-central', async (_req, res) => {
+  try {
+    const msg = await setDnsMode('central');
+    res.json({ result: 'ok', msg });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/switch-to-edge', async (_req, res) => {
+  try {
+    const msg = await setDnsMode('edge');
+    res.json({ result: 'ok', msg });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 const server = app.listen(CONTROL_PORT, () => {
   console.log(`Central Manager API запущен на :${CONTROL_PORT}`);

@@ -180,11 +180,11 @@ services:
     build:
       context: .
       dockerfile: infra/dns/secondary/Dockerfile 
+    container_name: secondary-dns
     ports:
       - "1053:53/udp"
-    volumes:
-      - ./infra/dns/secondary/Corefile:/Corefile:ro
-    container_name: secondary-dns
+    environment:
+      - DNS_MODE                          
     networks:
       elvira-net:
         ipv4_address: 172.20.0.4
