@@ -40,3 +40,21 @@ export async function setDnsMode(mode: DnsMode): Promise<string> {
     throw new Error('Failed to switch DNS mode');
   }
 }
+
+export async function getCurrentDnsMode(): Promise<DnsMode> {
+  try {
+    const { stdout } = await execAsync(
+      `docker logs ${PROJECT_NAME}_secondary-dns 2>&1 | grep "Starting in" | tail -1`
+    );
+
+    const line = stdout.trim();
+    if (line.includes('CENTRAL')) {
+      return 'central';
+    }
+    return 'edge';
+  } catch (err) {
+    // If no logs or container not running → fallback to edge
+    console.warn('[DNS-CONTROL] Could not read logs, assuming edge mode');
+    return 'edge';
+  }
+}

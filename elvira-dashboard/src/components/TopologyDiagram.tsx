@@ -1,18 +1,18 @@
 // src/components/TopologyDiagram.tsx
 import { useEffect, useRef, useState } from 'react';
-import { Box, Typography, Paper, Tooltip } from '@mui/material';
+import { Box, Typography, Paper, Tooltip, Button, Chip } from '@mui/material';
+import { switchToCentral, switchToEdge, getDnsStatus} from '../services/api';
 
 type NodeInfo = { id: string; label: string; ip?: string; color?: string };
 
 const edges: NodeInfo[] = [
-  { id: 'A', label: 'Faculty A', color: '#4caf50', ip: '192.168.10.1' },
-  { id: 'B', label: 'Faculty B', color: '#2196f3', ip: '192.168.10.2' },
-  { id: 'C', label: 'Faculty C', color: '#ff9800', ip: '192.168.10.3' },
-  { id: 'D', label: 'Faculty D', color: '#9c27b0', ip: '192.168.10.4' },
-  { id: 'E', label: 'Faculty E', color: '#607d8b', ip: '192.168.10.5' },
+  { id: 'A', label: 'Faculty A', color: '#4caf50', ip: '192.168.1.10' },
+  { id: 'B', label: 'Faculty B', color: '#2196f3', ip: '192.168.2.10' },
+  { id: 'C', label: 'Faculty C', color: '#ff9800', ip: '192.168.3.10' },
+  { id: 'D', label: 'Faculty D', color: '#9c27b0', ip: '192.168.4.10' },
+  { id: 'E', label: 'Faculty E', color: '#607d8b', ip: '192.168.5.10' },
 ];
 
-// positions in percentages (left%, top%)
 const positions = [
   { x: 50, y: 12 },
   { x: 86, y: 36 },
@@ -28,15 +28,30 @@ type Props = {
 };
 
 export default function TopologyDiagram({ runningSim }: Props) {
-  // phases: 0..4 (0=center, 1=1/4, 2=1/2, 3=3/4, 4=edge)
   const TOTAL_PHASES = 5;
   const [phase, setPhase] = useState(0);
+  const [dnsMode, setDnsMode] = useState<'edge' | 'central'>('edge');
+  const [loading, setLoading] = useState(false);
   const intervalRef = useRef<number | null>(null);
 
+  // Load current DNS mode on mount
+  useEffect(() => {
+    const loadMode = async () => {
+      try {
+        const res = await getDnsStatus();
+        setDnsMode(res.data.currentMode);
+      } catch (err) {
+        console.warn('Could not fetch DNS mode, assuming edge');
+        setDnsMode('edge');
+      }
+    };
+    loadMode();
+  }, []);
+
+  // Animation effect
   useEffect(() => {
     if (runningSim != null) {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
-      // update every 300ms (tweak as you like)
       intervalRef.current = window.setInterval(() => {
         setPhase((p) => (p + 1) % TOTAL_PHASES);
       }, 300);
@@ -49,39 +64,77 @@ export default function TopologyDiagram({ runningSim }: Props) {
     }
 
     return () => {
-      if (intervalRef.current) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      if (intervalRef.current) window.clearInterval(intervalRef.current);
     };
   }, [runningSim]);
 
   const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  const t = phase / (TOTAL_PHASES - 1);
 
-  // synchronized t for all packets
-  const t = phase / (TOTAL_PHASES - 1); // 0..1 inclusive
-
-  // compute packet positions (same t for all nodes -> synchronous)
   const packetPositions = edges.map((_, i) => ({
     left: `${lerp(central.x, positions[i].x, t)}%`,
     top: `${lerp(central.y, positions[i].y, t)}%`,
     visible: runningSim !== null,
   }));
 
-  // shorten factor for lines so arrowhead is outside node circle (0..1, closer to 1 means nearly full length)
   const SHORTEN_FACTOR = 0.92;
-
-  // compute shortened endpoint for an edge position
   const shortenedEndpoint = (p: { x: number; y: number }) => ({
     x: central.x + (p.x - central.x) * SHORTEN_FACTOR,
     y: central.y + (p.y - central.y) * SHORTEN_FACTOR,
   });
 
+  const handleSwitchMode = async () => {
+    if (runningSim !== null) return; // disabled during sim
+
+    setLoading(true);
+    try {
+      if (dnsMode === 'edge') {
+        await switchToCentral();
+        setDnsMode('central');
+      } else {
+        await switchToEdge();
+        setDnsMode('edge');
+      }
+    } catch (err) {
+      console.error('Failed to switch DNS mode:', err);
+      alert('Failed to switch infrastructure mode');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isCentralMode = dnsMode === 'central';
+
   return (
     <Paper sx={{ p: 3, position: 'relative', overflow: 'visible' }}>
-      <Typography variant="h6" gutterBottom>
-        Topology Diagram (Central + Edge nodes)
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="h6">
+          Topology Diagram
+        </Typography>
+
+        {/* Small switch button */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Chip
+            label={isCentralMode ? 'Central Only' : 'Edge Active'}
+            size="small"
+            color={isCentralMode ? 'warning' : 'success'}
+          />
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleSwitchMode}
+            disabled={runningSim !== null || loading}
+          >
+            {loading ? 'Switching...' : isCentralMode ? 'Enable Edges' : 'Central Only'}
+          </Button>
+        </Box>
+      </Box>
+
+      {runningSim !== null && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+          Infrastructure switch disabled while simulation is running
+        </Typography>
+      )}
 
       <Box
         sx={{
@@ -97,23 +150,10 @@ export default function TopologyDiagram({ runningSim }: Props) {
           overflow: 'hidden',
         }}
       >
-        {/* svg lines (0..100 coordinate system) */}
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-        >
+        {/* SVG lines */}
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
           <defs>
-            {/* smaller arrowhead marker */}
-            <marker
-              id="arrowhead-small"
-              viewBox="0 0 10 10"
-              refX="6"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
+            <marker id="arrowhead-small" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#777" />
             </marker>
           </defs>
@@ -130,13 +170,13 @@ export default function TopologyDiagram({ runningSim }: Props) {
                 stroke="#9e9e9e"
                 strokeWidth={0.5}
                 markerEnd="url(#arrowhead-small)"
-                opacity={0.85}
+                opacity={isCentralMode ? 0.3 : 0.85}
               />
             );
           })}
         </svg>
 
-        {/* central node */}
+        {/* Central node */}
         <Box
           sx={{
             position: 'absolute',
@@ -163,7 +203,7 @@ export default function TopologyDiagram({ runningSim }: Props) {
           NGINX
         </Box>
 
-        {/* edge nodes */}
+        {/* Edge nodes — grey when central mode */}
         {edges.map((n, i) => (
           <Box
             key={n.id}
@@ -173,6 +213,7 @@ export default function TopologyDiagram({ runningSim }: Props) {
               top: `${positions[i].y}%`,
               transform: 'translate(-50%,-50%)',
               zIndex: 8,
+              opacity: isCentralMode ? 0.5 : 1,
             }}
           >
             <Tooltip title={`${n.label} — ${n.ip}`} arrow>
@@ -181,52 +222,53 @@ export default function TopologyDiagram({ runningSim }: Props) {
                   width: { xs: 56, md: 68 },
                   height: { xs: 56, md: 68 },
                   borderRadius: '50%',
-                  bgcolor: n.color,
+                  bgcolor: isCentralMode ? '#bdbdbd' : n.color,
                   color: 'white',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontWeight: 600,
-                  boxShadow: 2,
+                  boxShadow: isCentralMode ? 1 : 2,
                   fontSize: { xs: '0.65rem', md: '0.85rem' },
                   textAlign: 'center',
                   px: 1,
                   cursor: 'pointer',
-                  transition: 'transform 150ms ease',
-                  '&:hover': { transform: 'translateY(-6px)' },
+                  transition: 'all 0.3s ease',
+                  '&:hover': { transform: isCentralMode ? 'none' : 'translateY(-6px)' },
                 }}
               >
                 {n.label}
               </Box>
             </Tooltip>
 
-            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5 }}>
+            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, color: isCentralMode ? 'text.disabled' : 'text.secondary' }}>
               {n.ip}
             </Typography>
           </Box>
         ))}
 
-        {/* animated packets (synchronized) */}
-        {packetPositions.map((pp, i) => (
-          <Box
-            key={'pkt' + i}
-            sx={{
-              position: 'absolute',
-              left: pp.left,
-              top: pp.top,
-              transform: 'translate(-50%,-50%)',
-              width: { xs: 10, md: 12 },
-              height: { xs: 10, md: 12 },
-              borderRadius: '50%',
-              bgcolor: runningSim ? '#000' : 'transparent',
-              opacity: pp.visible ? 1 : 0,
-              zIndex: 20, // draw above nodes so final stage is visible
-              boxShadow: 2,
-              transition: 'left 250ms linear, top 250ms linear, opacity 150ms linear',
-            }}
-            aria-hidden
-          />
-        ))}
+        {/* Animated packets — only in edge mode */}
+        {!isCentralMode &&
+          packetPositions.map((pp, i) => (
+            <Box
+              key={'pkt' + i}
+              sx={{
+                position: 'absolute',
+                left: pp.left,
+                top: pp.top,
+                transform: 'translate(-50%,-50%)',
+                width: { xs: 10, md: 12 },
+                height: { xs: 10, md: 12 },
+                borderRadius: '50%',
+                bgcolor: runningSim ? '#000' : 'transparent',
+                opacity: pp.visible ? 1 : 0,
+                zIndex: 20,
+                boxShadow: 2,
+                transition: 'left 250ms linear, top 250ms linear, opacity 150ms linear',
+              }}
+              aria-hidden
+            />
+          ))}
       </Box>
     </Paper>
   );

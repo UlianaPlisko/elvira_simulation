@@ -1,6 +1,6 @@
 // applications/central-manager/src/main.ts 
 import './monitoring/metrics';
-import { setDnsMode} from './control/dnsControl';
+import { setDnsMode, getCurrentDnsMode} from './control/dnsControl';
 import { startUsecase2Client, stopUsecase2Client } from './control/simulatorControl';
 import { precompressFile, PrecompressResult } from './compression/precompress'
 import {
@@ -9,7 +9,7 @@ import {
   centralPrecompressOriginalBytes,
   centralPrecompressCompressedBytes
 } from './monitoring/metrics';
-import { applyCentralNginxConfig, applyEdgeNginxConfig } from './control/nginxConfigControl';
+import { applyCentralNginxConfig, applyEdgeNginxConfig, clearEdgeCaches } from './control/nginxConfigControl';
 console.log('🚀 Central metrics ULTRA загружены');
 import CONFIG from './config';
 import express from 'express';
@@ -254,6 +254,9 @@ app.post('/usecase2/start', async (req, res) => {
       throw e;
     }
 
+    console.log('clearing caches');
+    await clearEdgeCaches();
+
     // cache warm-up один раз
     const edgeContainer = 'facultyA-edge';
     const warmCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
@@ -323,7 +326,7 @@ app.post('/usecase2/start', async (req, res) => {
         console.warn('[uc2] selenium failed:', e);
         parsed = null;
       } finally{
-        stopUsecase2Client();
+        //stopUsecase2Client();
       }
 
       if (parsed?.success && parsed.metrics) {
@@ -510,6 +513,20 @@ app.post('/switch-to-edge', async (_req, res) => {
     res.json({ result: 'ok', msg });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/dns-status', async (_req, res) => {
+  try {
+    const currentMode = await getCurrentDnsMode();
+    res.json({
+      currentMode,
+      description: currentMode === 'central'
+        ? 'All clients resolve elvira.lib to central server (baseline)'
+        : 'Clients resolve elvira.lib to local faculty edge (proposed architecture)'
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to get DNS status' });
   }
 });
 

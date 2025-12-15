@@ -20,7 +20,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { getCentralMetrics, getFacultyAMetrics, getFacultyBMetrics, getFacultyCMetrics, getFacultyDMetrics, getFacultyEMetrics } from '../services/api';
 import MemoryIcon from '@mui/icons-material/Memory';
 import CpuIcon from '@mui/icons-material/Computer';
-import StorageIcon from '@mui/icons-material/Storage';
 import PowerIcon from '@mui/icons-material/Power';
 import SpeedIcon from '@mui/icons-material/Speed';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -126,7 +125,6 @@ function CentralNodeCard({
   const mem = data?.memPercent ?? 0;
   const energy = data?.eTotal ?? 0;
   const requests = data?.requestsSinceReset ?? 0;
-  const u = data?.booksUtilPercent ?? 0;
   const powerWatts = data?.powerWatts ?? 0;
 
   const cpuColor = cpu > 80 ? 'error' : cpu > 50 ? 'warning' : 'success';
@@ -181,11 +179,6 @@ function CentralNodeCard({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <SpeedIcon color="info" />
             <Typography variant="body1">{requests} requests</Typography>
-          </Box>
-
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <StorageIcon color="action" />
-            <Typography variant="body1">{u.toFixed(1)}% storage used</Typography>
           </Box>
         </Stack>
       </Paper>

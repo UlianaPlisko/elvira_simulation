@@ -20,7 +20,7 @@ export async function applyCentralNginxConfig(strategy: Strategy, algo: Algo = '
     contentEncoding = '';
   } else {
     booksAlias = '/var/compressed-books/';
-    contentEncoding = strategy === 3 ? algo : ''; 
+    contentEncoding = algo; 
   }
 
   const templatePath = '/etc/nginx/central.conf.template';
@@ -86,6 +86,29 @@ export async function applyEdgeNginxConfig(enableGunzip: boolean): Promise<void>
     } catch (e: any) {
       console.warn(`[NGINX-EDGE] Failed to update ${container}:`, e.stdout || e.stderr || e);
       // Не бросаем ошибку — если один edge упал, остальные могут работать
+    }
+  }
+}
+
+export async function clearEdgeCaches(): Promise<void> {
+  const edgeContainers = [
+    'facultyA-edge',
+    'facultyB-edge',
+    'facultyC-edge',
+    'facultyD-edge',
+    'facultyE-edge',
+  ];
+
+  for (const container of edgeContainers) {
+    console.log(`[CACHE-CLEAR] Clearing cache for ${container}`);
+    const cmd = `docker exec ${container} sh -c 'rm -rf /var/cache/nginx/elvira_cache/* && mkdir -p /var/cache/nginx/elvira_cache'`;
+
+    try {
+      await execAsync(cmd);
+      console.log(`[CACHE-CLEAR] ${container} cache cleared`);
+    } catch (e: any) {
+      console.warn(`[CACHE-CLEAR] Failed for ${container}:`, e.stdout || e.stderr || e);
+      // Continue even if one fails
     }
   }
 }

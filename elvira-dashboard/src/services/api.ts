@@ -60,3 +60,7 @@ export const stopSimulation = () => axios.post(`${API_BASE}/simulator/stop`);
 
 
 export const getSimulationStatus = () => axios.get(`${API_BASE}/simulator/status`);
+
+export const switchToCentral = () => axios.post(`${API_BASE}/switch-to-central`);
+export const switchToEdge = () => axios.post(`${API_BASE}/switch-to-edge`);
+export const getDnsStatus = () => axios.get(`${API_BASE}/dns-status`);
