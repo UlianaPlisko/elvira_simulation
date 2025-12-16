@@ -23,7 +23,7 @@ This subpackage evaluates the ecological efficiency of compression/decompression
 The endpoint orchestrates a complete single-run experiment with the following sequential steps:
 
 <div style="text-align: center;">
-  <img src="./../../../img/usecase2_flowchart.png" alt="Use Case 2 Flowchart" width="auto" height="400vh">
+  <img src="./../../../img/usecase2_flowchart.png" alt="Use Case 2 Flowchart" width="auto" height="800vh">
 </div>
 
 
