@@ -16,14 +16,13 @@ elvira_simulation/
 │   ├── edge-managers/           # Faculty edge nodes (facultyA–E) → README
 │   ├── simulators/              # Traffic generators
 │       └── use-case-1/              # Use Case 1: Normal vs. Exam traffic → README
-│       └── use-case-2/          # Use Case 2: Compression strategies → README
+│       └── use-case-2/              # Use Case 2: Compression strategies → README
 ├── elvira-dashboard/            # React frontend (localhost:3101)
 ├── img/                         # Images for READMEs (flowcharts, topology)
 ├── infra/                       # Infrastructure configs (NGINX, Prometheus, DNS)
 ├── mock-content/                # Sample books/PDFs for CDN
 ├── ns3-STU-topology/            # NS3 network simulation code (topology)
 ├── scripts/                     # Entry points, helpers
-├── .env.example                 # Example environment variables
 ├── .gitignore
 ├── README.md                    # This file
 ├── docker-compose.yml           # Main orchestration
