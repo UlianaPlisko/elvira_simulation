@@ -223,15 +223,11 @@ app.post('/usecase2/start', async (req, res) => {
     const strategy = Number(req.body.strategy ?? process.env.STRATEGY ?? 1) as Strategy;
     const algo = String(req.body.compression ?? process.env.COMPRESS_ALGO ?? 'gzip') as Algo;
     const level = Number(req.body.level ?? process.env.COMPRESS_LEVEL ?? 6);
-    const iterations = Number(req.body.iterations ?? process.env.ITERATIONS ?? 1);
-
-    console.log(`uc2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${req.body.file ?? 'book1.pdf'}, iterations=${iterations}`);
-
     const file = String(req.body.file ?? 'book1.pdf');
 
-    const allResults: any[] = [];
+    console.log(`uc2 start: strategy=${strategy}, algo=${algo}, level=${level}, file=${file}`);
 
-    // === подготовка — один раз для всех итераций ===
+    // === Precompression (only for strategies 2 and 3) ===
     let precomp: PrecompressResult | null = null;
     if (strategy !== 1) {
       console.log('[uc2] precompressing on central...', file, algo, level);
@@ -246,18 +242,14 @@ app.post('/usecase2/start', async (req, res) => {
       }
     }
 
-    try {
-      await applyCentralNginxConfig(strategy, algo);
-      await applyEdgeNginxConfig(strategy === 2);
-    } catch (e: any) {
-      console.error('[uc2] failed to apply nginx configs:', e);
-      throw e;
-    }
+    // === Apply NGINX configs ===
+    await applyCentralNginxConfig(strategy, algo);
+    await applyEdgeNginxConfig(strategy === 2);
 
     console.log('clearing caches');
     await clearEdgeCaches();
 
-    // cache warm-up один раз
+    // === Cache warm-up ===
     const edgeContainer = 'facultyA-edge';
     const warmCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
     try {
@@ -268,7 +260,7 @@ app.post('/usecase2/start', async (req, res) => {
     }
     await new Promise(r => setTimeout(r, 800));
 
-    // === константы для энергии ===
+    // === Energy constants ===
     const originalSize = precomp ? precomp.originalBytes : (await fs.stat(`/var/www/books/${file}`)).size;
     const compressedSize = precomp ? precomp.compressedBytes : originalSize;
 
@@ -279,211 +271,184 @@ app.post('/usecase2/start', async (req, res) => {
     const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize);
     const transfer_energy_mJ = (central_to_edge_bytes + edge_to_client_bytes) * STATIC_TRANSFER_MJ_PER_BYTE;
 
-    // one-time central compression energy (будет амортизировано позже в анализе)
     const central_compress_energy_mJ = precomp ? precomp.central_compress_cpu_s * CPU_WATTS * 1000 : 0;
 
-    const promQuery = async (q: string) => {
+    // === Prometheus query helper ===
+    const promQuery = async (query: string): Promise<number> => {
       try {
-        const r = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, { params: { query: q }, timeout: 5000 });
+        const r = await axios.get(`${PROMETHEUS_URL}/api/v1/query`, {
+          params: { query },
+          timeout: 5000
+        });
         return parseFloat(r.data?.data?.result?.[0]?.value?.[1] ?? '0');
       } catch (e) {
+        console.warn('[PROM] query failed:', query, e);
         return 0;
       }
     };
 
-    // === цикл по итерациям ===
-    for (let i = 0; i < iterations; i++) {
-      console.log(`[uc2] iteration ${i + 1}/${iterations}`);
+    // === SINGLE RUN (no iterations) ===
+    let pdf_processing_duration_ms = 0;
+    let client_decompress_ms: number | null = null;
+    let network_transfer_ms: number | null = null;
+    let transfer_size_bytes = 0;
+    let decoded_size_bytes = 0;
+    let client_was_compressed = false;
+    let client_compression_ratio = 1.0;
 
-      // reset everything per iteration
-      let pdf_processing_duration_ms = 0;
-      let client_decompress_ms: number | null = null;
-      let network_transfer_ms: number | null = null;
+    let client_cpu_s = 0;
+    let client_net_rx_bytes = 0;
+    let client_cpu_energy_mJ = 0;
+    let client_network_energy_mJ = 0;
 
-      let transfer_size_bytes = 0;
-      let decoded_size_bytes = 0;
+    let edge_cpu_s = 0;
+    let edge_net_tx_bytes = 0;
+    let edge_network_energy_mJ = 0;
 
-      let client_was_compressed = false;
-      let client_compression_ratio = 1.0;
+    let parsed: any = null;
 
-      let client_cpu_s = 0;
-      let edge_decompress_cpu_s = 0;
-      let edge_decompress_wall_s = 0;
+    try {
+      await startUsecase2Client();
 
-      let parsed: any = null;
+      // === BEFORE: Snapshot Prometheus counters ===
+      const cpu_before = await promQuery('docker_cpu_usage_total{containerName="selenium-client"}');
+      const rx_before = await promQuery('docker_network_received_bytes{containerName="selenium-client"}');
 
-      // === selenium ===
-      try {
-        await startUsecase2Client();
-
-        const seleniumCmd =
-          `docker exec selenium-client python3 /scripts/run_selenium.py ` +
-          `--url-base http://elvira.lib/books --file ${file} --strategy ${strategy}`;
-
-        const { stdout } = await exec(seleniumCmd, { timeout: 120_000 });
-        parsed = JSON.parse(stdout.trim());
-      } catch (e) {
-        console.warn('[uc2] selenium failed:', e);
-        parsed = null;
-      } finally{
-        //stopUsecase2Client();
+      let edge_cpu_before = 0;
+      let edge_tx_before = 0;
+      if (strategy === 2) {
+        edge_cpu_before = await promQuery('docker_cpu_usage_total{containerName="facultyA-edge"}');
+        edge_tx_before = await promQuery('docker_network_transmit_bytes{containerName="facultyA-edge"}');
       }
 
-      if (parsed?.success && parsed.metrics) {
-        const m = parsed.metrics;
+      console.log('[PROM] BEFORE — client CPU:', cpu_before, 'RX:', rx_before);
+      if (strategy === 2) console.log('[PROM] BEFORE — edge CPU:', edge_cpu_before, 'TX:', edge_tx_before);
 
-        console.log(m);
+      // === Run Selenium ===
+      const seleniumCmd = `docker exec selenium-client python3 /scripts/run_selenium.py ` +
+        `--url-base http://elvira.lib/books --file ${file} --strategy ${strategy}`;
 
-        // === selenium is the single source of truth ===
-        pdf_processing_duration_ms = m.pdf_processing_duration_ms ?? 0;
-        client_decompress_ms = m.client_decompress_ms ?? null;
-        network_transfer_ms = m.network_transfer_ms ?? null;
+      const { stdout } = await exec(seleniumCmd, { timeout: 120_000 });
+      parsed = JSON.parse(stdout.trim());
 
-        transfer_size_bytes = Number(m.transfer_size_bytes ?? 0);
-        decoded_size_bytes = Number(m.decoded_body_size_bytes ?? 0);
+      // === AFTER: Snapshot again ===
+      const cpu_after = await promQuery('docker_cpu_usage_total{containerName="selenium-client"}');
+      const rx_after = await promQuery('docker_network_received_bytes{containerName="selenium-client"}');
 
-        client_was_compressed = Boolean(m.was_compressed);
-        client_compression_ratio = Number(m.compression_ratio ?? 1.0);
-
-        // --- prom window based on real client activity
-        const probe_ms = client_decompress_ms ?? pdf_processing_duration_ms ?? 0;
-        const duration_s = Math.max(1, Math.ceil(probe_ms / 1000) + 3);
-
-        if (strategy === 3 && probe_ms > 0) {
-          const qCpu =
-            `increase(docker_cpu_usage_total{containerName="selenium-client"}[${duration_s}s])`;
-          client_cpu_s = await promQuery(qCpu);
-        }
-
-        // client network rx
-        let client_net_rx_bytes = 0;
-        try {
-          const qRx =
-            `increase(docker_network_received_bytes{containerName="selenium-client"}[${duration_s}s])`;
-          client_net_rx_bytes = Math.max(0, await promQuery(qRx));
-        } catch {}
-
-        // edge metrics only for strategy 2
-        let edge_cpu_s_prom = 0;
-        let edge_net_tx_bytes = 0;
-        let edge_network_energy_mJ = 0;
-
-        if (strategy === 2) {
-          const edgeWindow = Math.max(5, Math.ceil(edge_decompress_wall_s || 10));
-
-          try {
-            edge_cpu_s_prom = Math.max(
-              0,
-              await promQuery(
-                `increase(docker_cpu_usage_total{containerName="facultyA-edge"}[${edgeWindow}s])`
-              )
-            );
-
-            edge_net_tx_bytes = Math.max(
-              0,
-              await promQuery(
-                `increase(docker_network_transmit_bytes{containerName="facultyA-edge"}[${edgeWindow}s])`
-              )
-            );
-
-            edge_network_energy_mJ =
-              edge_net_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
-          } catch {}
-        }
-
-        // attach internals for later use
-        parsed._internal_for_uc2 = {
-          client_net_rx_bytes,
-          client_cpu_energy_mJ: client_cpu_s * CPU_WATTS * 1000,
-          client_network_energy_mJ:
-            client_net_rx_bytes * STATIC_TRANSFER_MJ_PER_BYTE,
-          edge_cpu_s_prom,
-          edge_net_tx_bytes,
-          edge_network_energy_mJ
-        };
+      let edge_cpu_after = 0;
+      let edge_tx_after = 0;
+      if (strategy === 2) {
+        edge_cpu_after = await promQuery('docker_cpu_usage_total{containerName="facultyA-edge"}');
+        edge_tx_after = await promQuery('docker_network_transmit_bytes{containerName="facultyA-edge"}');
       }
 
-      // === energies derived only from selenium sizes ===
-      const transfer_energy_mJ =
-        transfer_size_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+      console.log('[PROM] AFTER — client CPU:', cpu_after, 'RX:', rx_after);
+      if (strategy === 2) console.log('[PROM] AFTER — edge CPU:', edge_cpu_after, 'TX:', edge_tx_after);
 
-      const client_decompress_energy_mJ =
-        strategy === 3 ? client_cpu_s * CPU_WATTS * 1000 : 0;
+      // === Calculate deltas ===
+      client_cpu_s = Math.max(0, cpu_after - cpu_before);
+      client_net_rx_bytes = Math.max(0, rx_after - rx_before);
 
-      const edge_decompress_energy_mJ =
-        strategy === 2 ? edge_decompress_cpu_s * CPU_WATTS * 1000 : 0;
-
-      // === iteration result ===
-      const iterationResult: any = {
-        iteration: i + 1,
-        timestamp: new Date().toISOString(),
-        experiment_id: `uc2-${Date.now()}-${i}`,
-        scenario: `uc2-s${strategy}`,
-        strategy,
-        compression: algo,
-        compression_level: level,
-        file,
-        metrics: {
-          transfer_size_bytes,
-          decoded_body_size_bytes: decoded_size_bytes,
-
-          transfer_energy_mJ: Number(transfer_energy_mJ.toFixed(6)),
-          central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6)),
-          edge_decompress_energy_mJ: Number(edge_decompress_energy_mJ.toFixed(6)),
-          client_decompress_energy_mJ: Number(client_decompress_energy_mJ.toFixed(6)),
-
-          client_cpu_s,
-          pdf_processing_duration_ms,
-          client_was_compressed,
-          client_compression_ratio,
-
-          client_decompress_ms,
-          network_transfer_ms
-        }
-      };
-
-      if (parsed?._internal_for_uc2) {
-        Object.assign(iterationResult.metrics, parsed._internal_for_uc2);
+      if (strategy === 2) {
+        edge_cpu_s = Math.max(0, edge_cpu_after - edge_cpu_before);
+        edge_net_tx_bytes = Math.max(0, edge_tx_after - edge_tx_before);
+        edge_network_energy_mJ = edge_net_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
       }
 
-      allResults.push(iterationResult);
-      await fs.appendFile(
-        '/var/log/central/uc2_runs.jsonl',
-        JSON.stringify(iterationResult) + '\n'
-      );
+      client_cpu_energy_mJ = client_cpu_s * CPU_WATTS * 1000;
+      client_network_energy_mJ = client_net_rx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+
+    } catch (e) {
+      console.warn('[uc2] selenium failed:', e);
+      parsed = null;
+    } finally {
+      // Do NOT stop the container — keep it running for accurate metrics
+      stopUsecase2Client();
     }
 
-    // === summary для ответа ===
-    const avg = (key: string) => {
-      const vals = allResults.map(r => r.metrics[key]).filter(v => typeof v === 'number');
-      return vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
-    };
+    // === Extract metrics from Selenium ===
+    if (parsed?.success && parsed.metrics) {
+      const m = parsed.metrics;
+      console.log('[SELENIUM] metrics:', m);
 
-    const total_energy_mJ_avg = avg('transfer_energy_mJ') +
-                                avg('central_compress_energy_mJ') +
-                                avg('edge_decompress_energy_mJ') +
-                                avg('client_decompress_energy_mJ');
+      pdf_processing_duration_ms = m.pdf_processing_duration_ms ?? 0;
+      client_decompress_ms = m.client_decompress_ms ?? null;
+      network_transfer_ms = m.network_transfer_ms ?? null;
 
-    const summary = {
+      transfer_size_bytes = Number(m.transfer_size_bytes ?? 0);
+      decoded_size_bytes = Number(m.decoded_body_size_bytes ?? 0);
+
+      client_was_compressed = Boolean(m.was_compressed);
+      client_compression_ratio = Number(m.compression_ratio ?? 1.0);
+    }
+
+    // === Final energies ===
+    const client_decompress_energy_mJ = strategy === 3 ? client_cpu_energy_mJ : 0;
+    const edge_decompress_energy_mJ = strategy === 2 ? edge_cpu_s * CPU_WATTS * 1000 : 0;
+
+    const total_energy_mJ =
+      transfer_energy_mJ +
+      central_compress_energy_mJ +
+      edge_decompress_energy_mJ +
+      client_decompress_energy_mJ;
+
+    // === Result object ===
+    const result = {
+      timestamp: new Date().toISOString(),
+      experiment_id: `uc2-${Date.now()}`,
+      scenario: `uc2-s${strategy}`,
       strategy,
-      algo,
-      level,
+      compression: algo,
+      compression_level: level,
       file,
-      iterations,
-      average_metrics: {
-        total_energy_mJ: Number(total_energy_mJ_avg.toFixed(6)),
-        transfer_energy_mJ: Number(avg('transfer_energy_mJ').toFixed(6)),
-        central_compress_energy_mJ: Number(avg('central_compress_energy_mJ').toFixed(6)),
-        edge_decompress_energy_mJ: Number(avg('edge_decompress_energy_mJ').toFixed(6)),
-        client_decompress_energy_mJ: Number(avg('client_decompress_energy_mJ').toFixed(6)),
-        compression_ratio: Number(avg('client_compression_ratio').toFixed(3)),
-        pdf_processing_duration_ms: Number(avg('pdf_processing_duration_ms').toFixed(1))
+      metrics: {
+        transfer_size_bytes,
+        decoded_body_size_bytes: decoded_size_bytes,
+        transfer_energy_mJ: Number(transfer_energy_mJ.toFixed(6)),
+        central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6)),
+        edge_decompress_energy_mJ: Number(edge_decompress_energy_mJ.toFixed(6)),
+        client_decompress_energy_mJ: Number(client_decompress_energy_mJ.toFixed(6)),
+        total_energy_mJ: Number(total_energy_mJ.toFixed(6)),
+
+        client_cpu_s: Number(client_cpu_s.toFixed(6)),
+        client_net_rx_bytes: Math.round(client_net_rx_bytes),
+        client_cpu_energy_mJ: Number(client_cpu_energy_mJ.toFixed(6)),
+        client_network_energy_mJ: Number(client_network_energy_mJ.toFixed(6)),
+
+        edge_cpu_s: Number(edge_cpu_s.toFixed(6)),
+        edge_net_tx_bytes: Math.round(edge_net_tx_bytes),
+        edge_network_energy_mJ: Number(edge_network_energy_mJ.toFixed(6)),
+
+        pdf_processing_duration_ms,
+        client_was_compressed,
+        client_compression_ratio: Number(client_compression_ratio.toFixed(3)),
+        client_decompress_ms,
+        network_transfer_ms
       }
     };
 
+    // Log to file
+    await fs.appendFile(
+      '/var/log/central/uc2_runs.jsonl',
+      JSON.stringify(result) + '\n'
+    );
+
+    // === Response ===
     res.json({
-      summary,
-      iterations_results: allResults
+      summary: {
+        strategy,
+        algo,
+        level,
+        file,
+        total_energy_mJ: result.metrics.total_energy_mJ,
+        transfer_energy_mJ: result.metrics.transfer_energy_mJ,
+        central_compress_energy_mJ: result.metrics.central_compress_energy_mJ,
+        edge_decompress_energy_mJ: result.metrics.edge_decompress_energy_mJ,
+        client_decompress_energy_mJ: result.metrics.client_decompress_energy_mJ,
+        compression_ratio: result.metrics.client_compression_ratio,
+        pdf_processing_duration_ms: result.metrics.pdf_processing_duration_ms
+      },
+      result // single run result (instead of array)
     });
 
   } catch (err: any) {

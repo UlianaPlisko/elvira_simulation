@@ -279,6 +279,9 @@ def main():
     }
 
     print(json.dumps(result, indent=2))
+    print("Adding 15-second sleep to allow Docker metrics exporter to update counters...", file=sys.stderr)
+    time.sleep(15)  # Critical: gives logporter/cAdvisor time to accumulate CPU and network usage
+    print("Sleep finished. Exiting.", file=sys.stderr)
 
 
 if __name__ == '__main__':
