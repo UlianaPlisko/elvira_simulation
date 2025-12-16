@@ -7,13 +7,30 @@
 
 **Elvira Simulation** is a modular, containerized simulation platform for evaluating energy-aware Content Delivery Network (CDN) strategies in academic environments. It models a central CDN node, multiple edge managers (faculties), DNS, Prometheus monitoring, and student traffic simulators. The system enables research and experimentation with energy optimization, load balancing, and caching policies in a realistic, observable environment.
 
-## Why the Project Is Useful
+## Project Structure
 
-- **Energy Optimization**: Simulate and analyze the impact of energy-saving strategies on CDN performance.
-- **Realistic Traffic**: Student simulators generate realistic, bursty access patterns (e.g., exam spikes) using Zipf distributions.
-- **Observability**: Integrated Prometheus metrics for load, energy, and latency at each node.
-- **Modular & Extensible**: Add new edge managers, simulators, or monitoring easily.
-- **Reproducible**: Fully containerized with Docker Compose for consistent, repeatable experiments.
+```text
+elvira_simulation/
+├── applications/                # Core simulation components
+│   ├── central-manager/         # Central orchestrator (NGINX + API + metrics) → README
+│   ├── edge-managers/           # Faculty edge nodes (facultyA–E) → README
+│   ├── simulators/              # Traffic generators
+│       └── use-case-1/              # Use Case 1: Normal vs. Exam traffic → README
+│       └── use-case-2/          # Use Case 2: Compression strategies → README
+├── elvira-dashboard/            # React frontend (localhost:3101)
+├── img/                         # Images for READMEs (flowcharts, topology)
+├── infra/                       # Infrastructure configs (NGINX, Prometheus, DNS)
+├── mock-content/                # Sample books/PDFs for CDN
+├── ns3-STU-topology/            # NS3 network simulation code (topology)
+├── scripts/                     # Entry points, helpers
+├── .env.example                 # Example environment variables
+├── .gitignore
+├── README.md                    # This file
+├── docker-compose.yml           # Main orchestration
+├── package.json                 # Root dependencies (dashboard/dev)
+├── package-lock.json
+└── tsconfig.json                # TypeScript config (shared)
+```
 
 ## Getting Started
 
@@ -25,7 +42,7 @@
 
 1. **Clone the repository:**
    ```sh
-   git clone <this-repo-url>
+   git clone https://github.com/UlianaPlisko/elvira_simulation.git
    cd elvira_simulation
    ```
 2. **Build and start all services:**
@@ -33,10 +50,16 @@
    docker-compose up --build
    ```
 3. **Access the system:**
-   - Central CDN: http://localhost:8080/books/
-   - FacultyA Edge: http://localhost:8081/books/
-   - Prometheus: http://localhost:9090/
-   - Metrics endpoints: see `infra/prometheus/prometheus.yml`
+   - Open: http://localhost:3101
+   - Use Case 2 (compression experiments): http://localhost:3101/use-case2
+   - Visualize topology, metrics, Eco Index, and control simulations directly in the browser.
+
+4. **Grafana Dashboards (for detailed monitoring):**
+   - Open: http://localhost:3010
+   - Login: admin / admin123
+   - Explore pre-configured dashboards pulling data from Prometheus and logporter.
+
+
 
 ### Development & Customization
 - Edit or add simulators in `applications/simulators/`
@@ -44,18 +67,15 @@
 - Update DNS, Nginx, or Prometheus configs in `infra/`
 - Add mock content (PDFs) in `mock-content/`
 
-### Example: Running a Student Simulator
-```sh
-cd applications/simulators/student-sim
-npm install
-npm run build
-npm start
-```
 
 ## Where Users Can Get Help
 - **Documentation:**
-  - [Use Cases](docs/use-cases.md)
-  - [Evaluation Metrics](docs/evaluation-metrics.md)
+  - [Use Case1](./applications/simulators/use-case1/student-sim/README.md)
+  - [Use Case2](./applications/simulators/use-case2/README.md)
+  - [Central manager](./applications/central-manager/README.md)
+  - [Edge manager](./applications/edge-managers/faculty-edge/README.md)
+  - [NS-3 Topology](./ns3-STU-topology/README.md)
+
 - **Issues:** Use the GitHub Issues tab for bug reports and feature requests.
 
 ## Who Maintains and Contributes
