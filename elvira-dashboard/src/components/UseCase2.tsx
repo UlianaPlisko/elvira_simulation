@@ -38,9 +38,9 @@ export default function UseCase2() {
 
   // Possible compression algos (based on common ones; adjust per backend support)
   const algos = [
-    { value: 'gzip', label: 'GZIP' },
-    { value: 'brotli', label: 'Brotli' },
-    { value: 'zstd', label: 'Zstandard' }, // Added Zstandard as mentioned in the notes
+    { value: 'gzip', label: 'GZIP' }
+    // { value: 'brotli', label: 'Brotli' },
+    // { value: 'zstd', label: 'Zstandard' }, // Added Zstandard as mentioned in the notes
   ];
 
   const handleRun = async () => {
