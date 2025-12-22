@@ -215,7 +215,10 @@ services:
         ipv4_address: 172.20.0.5
     profiles: []
   student-facultyA:
-    image: elvira-sim-student:latest
+    image: elvira-sim-student:studenta
+    build:
+      context: .
+      dockerfile: applications/simulators/use-case1/student-sim/Dockerfile
     container_name: student-facultyA
     cap_add:
       - NET_ADMIN
@@ -238,7 +241,10 @@ services:
       - simulator
 
   student-facultyB:
-    image: elvira-sim-student:latest
+    image: elvira-sim-student:studentb
+    build:
+      context: .
+      dockerfile: applications/simulators/use-case1/student-sim/Dockerfile
     container_name: student-facultyB
     cap_add:
       - NET_ADMIN
@@ -261,7 +267,10 @@ services:
       - simulator
 
   student-facultyC:
-    image: elvira-sim-student:latest
+    image: elvira-sim-student:studentc
+    build:
+      context: .
+      dockerfile: applications/simulators/use-case1/student-sim/Dockerfile
     container_name: student-facultyC
     cap_add:
       - NET_ADMIN
@@ -284,7 +293,10 @@ services:
       - simulator
 
   student-facultyD:
-    image: elvira-sim-student:latest
+    image: elvira-sim-student:studentd
+    build:
+      context: .
+      dockerfile: applications/simulators/use-case1/student-sim/Dockerfile
     container_name: student-facultyD
     cap_add:
       - NET_ADMIN
@@ -307,7 +319,10 @@ services:
       - simulator
 
   student-facultyE:
-    image: elvira-sim-student:latest
+    image: elvira-sim-student:studente
+    build:
+      context: .
+      dockerfile: applications/simulators/use-case1/student-sim/Dockerfile
     container_name: student-facultyE
     cap_add:
       - NET_ADMIN

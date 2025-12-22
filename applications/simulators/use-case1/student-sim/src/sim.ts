@@ -79,14 +79,14 @@ async function studentLoop(id: number) {
       }
     }
 
-    try {
-      const t0 = Date.now();
-      await axios.get(SIM_URL_BASE, { timeout: 10000, headers: { 'X-Sim-Client-IP': LOCAL_IP } });
-      lastLatencyMs = Date.now() - t0;
-      totalReqs++;
-    } catch (e) {
-      failedReqs++;
-    }
+    // try {
+    //   const t0 = Date.now();
+    //   await axios.get(SIM_URL_BASE, { timeout: 10000, headers: { 'X-Sim-Client-IP': LOCAL_IP } });
+    //   lastLatencyMs = Date.now() - t0;
+    //   totalReqs++;
+    // } catch (e) {
+    //   failedReqs++;
+    // }
 
     const num_books = IS_EXAM
       ? 1 + Math.floor(Math.random() * 9)   

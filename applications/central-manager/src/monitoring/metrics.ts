@@ -10,7 +10,7 @@ const promUrl = 'http://prometheus:9090';
 const register = new promClient.Registry();
 const CONTAINER_NAME = CONFIG.metrics?.containerName || 'central-nginx';
 const BOOKS_PATH = '/var/www/books';
-const MAX_BOOKS_BYTES = CONFIG.cache?.maxSizeBytes ?? 10 * 1024 * 1024 * 1024; // 10 GB default
+const MAX_BOOKS_BYTES = CONFIG.cache?.maxSizeBytes ?? 500 * 1024 * 1024; // 500 MB default
 
 // ======================= ВСЕ МЕТРИКИ (максимум из logporter + другие) =======================
 const lambdaGauge          = new promClient.Gauge({ name: 'central_load_lambda',               help: 'λ(t) — итоговая нагрузка 0-1' });

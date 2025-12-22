@@ -10,12 +10,15 @@ import {
   getFacultyEMetrics 
 } from '../services/api';
 
+
 export default function EcoIndexCard() {
   const [totalEI, setTotalEI] = useState<number>(0);
   const [totalCO2, setTotalCO2] = useState<number>(0);
   const [summary, setSummary] = useState({
     totalEnergy: 0,
     avgU: 0,
+    avgCPU: 0,
+    activeCount: 0,  // New: number of active servers
     totalR: 0,
     t: 0,
     central_mb: 0,
@@ -24,6 +27,9 @@ export default function EcoIndexCard() {
 
   useEffect(() => {
     let mounted = true;
+    const ACTIVE_CPU_THRESHOLD = 4;  // % - as per your 3-4% definition
+    const CARBON_INTENSITY = 0.44;   // kg CO2 per kWh - global avg from sources
+    const EDGE_PENALTY_FACTOR = 0.2; // Penalty per extra active server
 
     const fetchAndCompute = async () => {
       try {
@@ -61,16 +67,27 @@ export default function EcoIndexCard() {
           + Number(facultyD.requestsSinceReset ?? facultyD.requestsTotal ?? 0)
           + Number(facultyE.requestsSinceReset ?? facultyE.requestsTotal ?? 0);
 
-        // ========== ИСПОЛЬЗОВАНИЕ КЭША (U %) ==========
-        const uCentral = Number(central.booksUtilPercent ?? 0);
-        const uA = Number(facultyA.booksUtilPercent ?? 0);
-        const uB = Number(facultyB.booksUtilPercent ?? 0);
-        const uC = Number(facultyC.booksUtilPercent ?? 0);
-        const uD = Number(facultyD.booksUtilPercent ?? 0);
-        const uE = Number(facultyE.booksUtilPercent ?? 0);
+        // ========== АКТИВНЫЕ СЕРВЕРЫ (CPU >4% или requests >0) ==========
+        const isActive = (node: any) => Number(node.containerCpuPercent ?? 0) > ACTIVE_CPU_THRESHOLD || Number(node.requestsSinceReset ?? node.requestsTotal ?? 0) > 0;
 
-        const uValues = [uCentral, uA, uB, uC, uD, uE].filter(v => v > 0);
-        const avgU = uValues.length ? uValues.reduce((s, v) => s + v, 0) / uValues.length : 0;
+        const activeNodes = [
+          { u: Number(central.booksUtilPercent ?? 0), cpu: Number(central.containerCpuPercent ?? 0), active: isActive(central) },
+          { u: Number(facultyA.booksUtilPercent ?? 0), cpu: Number(facultyA.containerCpuPercent ?? 0), active: isActive(facultyA) },
+          { u: Number(facultyB.booksUtilPercent ?? 0), cpu: Number(facultyB.containerCpuPercent ?? 0), active: isActive(facultyB) },
+          { u: Number(facultyC.booksUtilPercent ?? 0), cpu: Number(facultyC.containerCpuPercent ?? 0), active: isActive(facultyC) },
+          { u: Number(facultyD.booksUtilPercent ?? 0), cpu: Number(facultyD.containerCpuPercent ?? 0), active: isActive(facultyD) },
+          { u: Number(facultyE.booksUtilPercent ?? 0), cpu: Number(facultyE.containerCpuPercent ?? 0), active: isActive(facultyE) }
+        ].filter(node => node.active);  // Только активные
+
+        const activeCount = activeNodes.length;
+
+        // ========== ИСПОЛЬЗОВАНИЕ КЭША (U %) ==========
+        const uValues = activeNodes.map(node => node.u);
+        const avgU = activeCount ? uValues.reduce((s, v) => s + v, 0) / activeCount : 0;
+
+        // ========== СРЕДНИЙ CPU (%) ==========
+        const cpuValues = activeNodes.map(node => node.cpu);
+        const avgCPU = activeCount ? cpuValues.reduce((s, v) => s + v, 0) / activeCount : 0;
 
         // ========== МБ КЭША ==========
         const centralMb = Number(central.booksUsedMb ?? 0);
@@ -92,10 +109,11 @@ export default function EcoIndexCard() {
           0
         );
 
-        // ========== ECO-INDEX ==========
+        // ========== ECO-INDEX (обновлённая объективная формула) ==========
         const denom = totalR * t || 1;
-        const ei = totalE * (1 - avgU / 100) / denom;
-        const co2 = ei * 0.5;
+        const activePenalty = 1 + EDGE_PENALTY_FACTOR * (activeCount - 1);
+        const ei = totalE * (1 - avgU / 100) * (avgCPU / 100) * activePenalty / denom;
+        const co2 = totalE * CARBON_INTENSITY;  // Decoupled to raw totalE * CI for accuracy
 
         if (!mounted) return;
 
@@ -104,6 +122,8 @@ export default function EcoIndexCard() {
         setSummary({
           totalEnergy: totalE,
           avgU,
+          avgCPU,
+          activeCount,  // Новый в summary
           totalR,
           t,
           central_mb: centralMb,
@@ -134,6 +154,8 @@ export default function EcoIndexCard() {
           Total Energy: <strong>{summary.totalEnergy.toFixed(6)} kWh</strong><br />
           Total CO₂: <strong>{totalCO2.toFixed(6)} kg</strong><br />
           Avg Cache Utilization: <strong>{summary.avgU.toFixed(2)}%</strong><br />
+          Avg CPU Utilization: <strong>{summary.avgCPU.toFixed(2)}%</strong><br />
+          Active Servers: <strong>{summary.activeCount}</strong><br />  {/* Новый дисплей */}
           Cache → Central: <strong>{summary.central_mb.toFixed(1)} MB</strong> | 
           Faculties (A+B+C+D+E): <strong>{summary.faculties_mb.toFixed(1)} MB</strong><br />
           Requests since reset: <strong>{summary.totalR.toLocaleString()}</strong> | 

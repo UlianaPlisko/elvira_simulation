@@ -50,7 +50,6 @@ interface FullNodeMetrics {
   timestamp: string;
 }
 
-// Упрощённая карточка Edge — без кнопки Prefetch
 function EdgeNodeCard({
   letter,
   data,

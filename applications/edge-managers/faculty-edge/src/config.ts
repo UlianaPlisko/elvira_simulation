@@ -42,7 +42,7 @@ const CONFIG = {
   },
 
   cache: {
-    maxSizeBytes: 500 * 1024 * 1024  // 500 MB
+    maxSizeBytes: 50 * 1024 * 1024  // 500 MB
   }
 } as const;
 
