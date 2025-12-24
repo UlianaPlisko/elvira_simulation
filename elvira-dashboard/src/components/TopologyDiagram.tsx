@@ -1,7 +1,6 @@
 // src/components/TopologyDiagram.tsx
 import { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Paper, Tooltip, Button, Chip } from '@mui/material';
-import { switchToCentral, switchToEdge, getDnsStatus} from '../services/api';
 
 type NodeInfo = { id: string; label: string; ip?: string; color?: string };
 
@@ -25,30 +24,16 @@ const central = { x: 50, y: 50 };
 
 type Props = {
   runningSim: number | null;
+  dnsMode: 'edge' | 'central';
+  onSwitchMode: () => void;
+  loading: boolean;
 };
 
-export default function TopologyDiagram({ runningSim }: Props) {
+export default function TopologyDiagram({ runningSim, dnsMode, onSwitchMode, loading }: Props) {
   const TOTAL_PHASES = 5;
   const [phase, setPhase] = useState(0);
-  const [dnsMode, setDnsMode] = useState<'edge' | 'central'>('edge');
-  const [loading, setLoading] = useState(false);
   const intervalRef = useRef<number | null>(null);
 
-  // Load current DNS mode on mount
-  useEffect(() => {
-    const loadMode = async () => {
-      try {
-        const res = await getDnsStatus();
-        setDnsMode(res.data.currentMode);
-      } catch (err) {
-        console.warn('Could not fetch DNS mode, assuming edge');
-        setDnsMode('edge');
-      }
-    };
-    loadMode();
-  }, []);
-
-  // Animation effect
   useEffect(() => {
     if (runningSim != null) {
       if (intervalRef.current) window.clearInterval(intervalRef.current);
@@ -83,26 +68,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
     y: central.y + (p.y - central.y) * SHORTEN_FACTOR,
   });
 
-  const handleSwitchMode = async () => {
-    if (runningSim !== null) return; // disabled during sim
-
-    setLoading(true);
-    try {
-      if (dnsMode === 'edge') {
-        await switchToCentral();
-        setDnsMode('central');
-      } else {
-        await switchToEdge();
-        setDnsMode('edge');
-      }
-    } catch (err) {
-      console.error('Failed to switch DNS mode:', err);
-      alert('Failed to switch infrastructure mode');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const isCentralMode = dnsMode === 'central';
 
   return (
@@ -112,7 +77,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
           Topology Diagram
         </Typography>
 
-        {/* Small switch button */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Chip
             label={isCentralMode ? 'Central Only' : 'Edge Active'}
@@ -122,7 +86,7 @@ export default function TopologyDiagram({ runningSim }: Props) {
           <Button
             size="small"
             variant="outlined"
-            onClick={handleSwitchMode}
+            onClick={onSwitchMode}
             disabled={runningSim !== null || loading}
           >
             {loading ? 'Switching...' : isCentralMode ? 'Enable Edges' : 'Central Only'}
@@ -150,7 +114,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
           overflow: 'hidden',
         }}
       >
-        {/* SVG lines */}
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
           <defs>
             <marker id="arrowhead-small" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
@@ -176,7 +139,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
           })}
         </svg>
 
-        {/* Central node */}
         <Box
           sx={{
             position: 'absolute',
@@ -203,7 +165,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
           NGINX
         </Box>
 
-        {/* Edge nodes — grey when central mode */}
         {edges.map((n, i) => (
           <Box
             key={n.id}
@@ -247,7 +208,6 @@ export default function TopologyDiagram({ runningSim }: Props) {
           </Box>
         ))}
 
-        {/* Animated packets — only in edge mode */}
         {!isCentralMode &&
           packetPositions.map((pp, i) => (
             <Box

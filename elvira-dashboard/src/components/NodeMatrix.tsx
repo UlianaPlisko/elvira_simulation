@@ -1,4 +1,4 @@
-// src/components/NodeMatrix.tsx — ФИНАЛЬНАЯ ВЕРСИЯ (декабрь 2025)
+// src/components/NodeMatrix.tsx
 import {
   Box,
   Paper,
@@ -20,6 +20,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { getCentralMetrics, getFacultyAMetrics, getFacultyBMetrics, getFacultyCMetrics, getFacultyDMetrics, getFacultyEMetrics } from '../services/api';
 import MemoryIcon from '@mui/icons-material/Memory';
 import CpuIcon from '@mui/icons-material/Computer';
+import StorageIcon from '@mui/icons-material/Storage';
 import PowerIcon from '@mui/icons-material/Power';
 import SpeedIcon from '@mui/icons-material/Speed';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -50,14 +51,42 @@ interface FullNodeMetrics {
   timestamp: string;
 }
 
+const zeroMetrics: FullNodeMetrics = {
+  eTotal: 0,
+  powerWatts: 0,
+  lambda: 0,
+  hostCpuPercent: 0,
+  containerCpuPercent: 0,
+  memUsageBytes: 0,
+  memUsageMb: 0,
+  memPercent: 0,
+  netRxKiBps: 0,
+  netTxKiBps: 0,
+  diskReadKiBps: 0,
+  diskWriteKiBps: 0,
+  pids: 0,
+  nginxConnectionsActive: 0,
+  requestsTotal: 0,
+  requestsSinceReset: 0,
+  rps: 0,
+  booksUsedBytes: 0,
+  booksUsedMb: 0,
+  booksUtilPercent: 0,
+  transitions: 0,
+  simulationHours: 0,
+  timestamp: '',
+};
+
 function EdgeNodeCard({
   letter,
   data,
   onOpen,
+  disabled = false,
 }: {
   letter: string;
   data: FullNodeMetrics | null;
   onOpen: () => void;
+  disabled?: boolean;
 }) {
   const theme = useTheme();
   const cpu = data?.containerCpuPercent ?? 0;
@@ -67,43 +96,58 @@ function EdgeNodeCard({
   const cpuColor = cpu > 80 ? 'error' : cpu > 50 ? 'warning' : 'success';
 
   return (
-    <Tooltip title={data ? `Click for details • ${requests} req • ${powerWatts.toFixed(0)} W` : 'No data'} arrow>
+    <Tooltip title={disabled ? 'Offline in central mode' : data ? `Click for details • ${requests} req • ${powerWatts.toFixed(0)} W` : 'No data'} arrow>
       <Paper
-        onClick={onOpen}
+        onClick={() => !disabled && onOpen()}
         sx={{
-          p: 2,
+          p: 1.5,
           height: '100%',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          '&:hover': { transform: 'translateY(-6px)', boxShadow: theme.shadows[10] },
+          cursor: disabled ? 'default' : 'pointer',
+          transition: disabled ? 'none' : 'all 0.2s ease',
+          '&:hover': disabled ? {} : { transform: 'translateY(-4px)', boxShadow: theme.shadows[8] },
           border: '1px solid',
-          borderColor: 'divider',
+          borderColor: disabled ? 'grey.300' : 'divider',
+          opacity: disabled ? 0.6 : 1,
+          bgcolor: disabled ? 'grey.100' : 'background.paper',
         }}
       >
-        <Stack spacing={1.5}>
-          <Typography variant="h6" fontWeight="bold" align="center">
+        <Stack spacing={1}>
+          <Typography variant="subtitle1" fontWeight="bold" align="center" sx={{ color: disabled ? 'text.disabled' : 'text.primary' }}>
             Edge {letter}
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PowerIcon fontSize="small" color="primary" />
+            <PowerIcon fontSize="small" color={disabled ? 'disabled' : 'primary'} />
             <Box>
-              <Typography variant="body2">{energy.toFixed(6)} kWh</Typography>
-              <Typography variant="caption" color="text.secondary">{powerWatts.toFixed(0)} W</Typography>
+              <Typography variant="body2" sx={{ color: disabled ? 'text.disabled' : 'text.primary' }}>
+                {energy.toFixed(6)} kWh
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {powerWatts.toFixed(0)} W
+              </Typography>
             </Box>
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CpuIcon fontSize="small" sx={{ color: theme.palette[cpuColor].main }} />
+            <CpuIcon fontSize="small" sx={{ color: disabled ? theme.palette.grey[500] : theme.palette[cpuColor].main }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="body2">CPU {cpu.toFixed(1)}%</Typography>
-              <LinearProgress variant="determinate" value={cpu} color={cpuColor} sx={{ height: 6, borderRadius: 3 }} />
+              <Typography variant="body2" sx={{ color: disabled ? 'text.disabled' : 'text.primary' }}>
+                CPU {cpu.toFixed(1)}%
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={cpu}
+                color={disabled ? 'inherit' : cpuColor}
+                sx={{ height: 5, borderRadius: 2 }}
+              />
             </Box>
           </Box>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <SpeedIcon fontSize="small" color="info" />
-            <Typography variant="body2">{requests} req</Typography>
+            <SpeedIcon fontSize="small" color={disabled ? 'disabled' : 'info'} />
+            <Typography variant="body2" sx={{ color: disabled ? 'text.disabled' : 'text.primary' }}>
+              {requests} req
+            </Typography>
           </Box>
         </Stack>
       </Paper>
@@ -111,7 +155,6 @@ function EdgeNodeCard({
   );
 }
 
-// Центральная карточка — тоже без Prefetch кнопки
 function CentralNodeCard({
   data,
   onOpen,
@@ -124,6 +167,7 @@ function CentralNodeCard({
   const mem = data?.memPercent ?? 0;
   const energy = data?.eTotal ?? 0;
   const requests = data?.requestsSinceReset ?? 0;
+  const u = data?.booksUtilPercent ?? 0;
   const powerWatts = data?.powerWatts ?? 0;
 
   const cpuColor = cpu > 80 ? 'error' : cpu > 50 ? 'warning' : 'success';
@@ -134,50 +178,55 @@ function CentralNodeCard({
       <Paper
         onClick={onOpen}
         sx={{
-          p: 3,
+          p: 2,
           height: '100%',
           cursor: 'pointer',
           transition: 'all 0.2s ease',
-          '&:hover': { transform: 'translateY(-8px)', boxShadow: theme.shadows[16] },
+          '&:hover': { transform: 'translateY(-6px)', boxShadow: theme.shadows[12] },
           border: '2px solid',
           borderColor: 'primary.main',
         }}
       >
-        <Typography variant="h5" fontWeight="bold" gutterBottom>
+        <Typography variant="h6" fontWeight="bold" gutterBottom>
           Central Server
         </Typography>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+        <Typography variant="caption" color="text.secondary" gutterBottom display="block">
           Main NGINX + Manager + Storage
         </Typography>
 
-        <Stack spacing={2} sx={{ mt: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <PowerIcon color="primary" />
+        <Stack spacing={1.5} sx={{ mt: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PowerIcon fontSize="small" color="primary" />
             <Box>
-              <Typography variant="body1" fontWeight="bold">{energy.toFixed(6)} kWh</Typography>
+              <Typography variant="body2" fontWeight="bold">{energy.toFixed(6)} kWh</Typography>
               <Typography variant="caption">{powerWatts.toFixed(0)} W</Typography>
             </Box>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <CpuIcon sx={{ color: theme.palette[cpuColor].main }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CpuIcon fontSize="small" sx={{ color: theme.palette[cpuColor].main }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="body1">{cpu.toFixed(1)}% CPU</Typography>
-              <LinearProgress variant="determinate" value={cpu} color={cpuColor} sx={{ height: 8, borderRadius: 4 }} />
+              <Typography variant="body2">{cpu.toFixed(1)}% CPU</Typography>
+              <LinearProgress variant="determinate" value={cpu} color={cpuColor} sx={{ height: 6, borderRadius: 3 }} />
             </Box>
           </Box>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <MemoryIcon sx={{ color: theme.palette[memColor].main }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <MemoryIcon fontSize="small" sx={{ color: theme.palette[memColor].main }} />
             <Box sx={{ flex: 1 }}>
-              <Typography variant="body1">{mem.toFixed(1)}% • {(data?.memUsageMb ?? 0).toFixed(0)} MB</Typography>
-              <LinearProgress variant="determinate" value={mem} color={memColor} sx={{ height: 8, borderRadius: 4 }} />
+              <Typography variant="body2">{mem.toFixed(1)}% • {(data?.memUsageMb ?? 0).toFixed(0)} MB</Typography>
+              <LinearProgress variant="determinate" value={mem} color={memColor} sx={{ height: 6, borderRadius: 3 }} />
             </Box>
           </Box>
 
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <SpeedIcon fontSize="small" color="info" />
+            <Typography variant="body2">{requests} requests</Typography>
+          </Box>
+
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <SpeedIcon color="info" />
-            <Typography variant="body1">{requests} requests</Typography>
+            <StorageIcon color="action" />
+            <Typography variant="body1">{u.toFixed(1)}% storage used</Typography>
           </Box>
         </Stack>
       </Paper>
@@ -185,7 +234,7 @@ function CentralNodeCard({
   );
 }
 
-export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
+export default function NodeMatrix({ fullHeight, dnsMode }: { fullHeight?: boolean; dnsMode: 'edge' | 'central' }) {
   const [central, setCentral] = useState<FullNodeMetrics | null>(null);
   const [edges, setEdges] = useState<Record<string, FullNodeMetrics | null>>({
     A: null, B: null, C: null, D: null, E: null,
@@ -194,23 +243,43 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
 
   const triggerPrefetch = useCallback((nodeId: string) => {
     console.log(`[PREFETCH] Triggered for ${nodeId}`);
-    // Позже: await api.triggerPrefetch(nodeId);
   }, []);
 
-  // Единый фетч всех данных
   useEffect(() => {
     let mounted = true;
     const fetch = async () => {
       try {
-        // fetch central, faculty A and faculty B
-        const [cent, a, b, c, d, e] = await Promise.all([getCentralMetrics(), getFacultyAMetrics(), getFacultyBMetrics(), getFacultyCMetrics(), getFacultyDMetrics(), getFacultyEMetrics()]);
-        if (!mounted) return;
-        if (cent.data) setCentral(cent.data);
-        if (a.data) setEdges(prev => ({ ...prev, A: a.data }));
-        if (b.data) setEdges(prev => ({ ...prev, B: b.data })); 
-        if (c.data) setEdges(prev => ({ ...prev, C: c.data }));
-        if (d.data) setEdges(prev => ({ ...prev, D: d.data }));
-        if (e.data) setEdges(prev => ({ ...prev, E: e.data }));
+        if (dnsMode === 'central') {
+          const cent = await getCentralMetrics();
+          if (!mounted) return;
+          if (cent.data) setCentral(cent.data);
+          setEdges({
+            A: zeroMetrics,
+            B: zeroMetrics,
+            C: zeroMetrics,
+            D: zeroMetrics,
+            E: zeroMetrics,
+          });
+        } else {
+          const [cent, a, b, c, d, e] = await Promise.all([
+            getCentralMetrics(),
+            getFacultyAMetrics(),
+            getFacultyBMetrics(),
+            getFacultyCMetrics(),
+            getFacultyDMetrics(),
+            getFacultyEMetrics()
+          ]);
+          if (!mounted) return;
+          if (cent.data) setCentral(cent.data);
+          setEdges(prev => ({
+            ...prev,
+            A: a.data ?? null,
+            B: b.data ?? null,
+            C: c.data ?? null,
+            D: d.data ?? null,
+            E: e.data ?? null,
+          }));
+        }
       } catch (e) {
         console.error('NodeMatrix fetch error:', e);
       }
@@ -222,9 +291,8 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
       mounted = false;
       clearInterval(id);
     };
-  }, []);
+  }, [dnsMode]);
 
-  // Получение актуальных данных для открытого узла
   const getCurrentData = () => {
     if (!openNode) return null;
     if (openNode.type === 'central') return central;
@@ -234,60 +302,59 @@ export default function NodeMatrix({ fullHeight }: { fullHeight?: boolean }) {
 
   return (
     <Box sx={{ height: fullHeight ? '100%' : 'auto', width: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Typography variant="h5" gutterBottom fontWeight="bold">
+      <Typography variant="h6" gutterBottom fontWeight="bold">
         Eco-CDN Node Matrix • Live Monitoring
       </Typography>
 
       <Box
-      sx={{
-        flex: 1,
-        display: 'grid',
-        gap: 3,
-        gridTemplateColumns: 'repeat(4, 1fr)',
-        // make top row larger than bottom row so B-E are visibly smaller:
-        gridTemplateRows: '2fr 1fr',
-        gridTemplateAreas: `
-          "central central central edgeA"
-          "edgeB   edgeC   edgeD   edgeE"
-        `,
-        mt: 2,
-        minHeight: 0, // allow parent flex sizing to work properly
-      }}
-    >
-      <Box sx={{ gridArea: 'central', height: '100%' }}>
-        <CentralNodeCard
-          data={central}
-          onOpen={() => setOpenNode({ id: 'Central Server', type: 'central' })}
-        />
-      </Box>
-
-      {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => (
-        <Box
-          key={letter}
-          sx={{
-            gridArea:
-              letter === 'A'
-                ? 'edgeA'
-                : letter === 'B'
-                ? 'edgeB'
-                : letter === 'C'
-                ? 'edgeC'
-                : letter === 'D'
-                ? 'edgeD'
-                : 'edgeE',
-            height: '100%', // ensure edge cards fill their grid cell
-          }}
-        >
-          <EdgeNodeCard
-            letter={letter}
-            data={edges[letter]}
-            onOpen={() => setOpenNode({ id: `Edge ${letter}`, type: 'edge', letter })}
+        sx={{
+          flex: 1,
+          display: 'grid',
+          gap: 2,
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateRows: '1.8fr 1fr',
+          gridTemplateAreas: `
+            "central central central edgeA"
+            "edgeB   edgeC   edgeD   edgeE"
+          `,
+          mt: 1,
+          minHeight: 0,
+        }}
+      >
+        <Box sx={{ gridArea: 'central', height: '100%' }}>
+          <CentralNodeCard
+            data={central}
+            onOpen={() => setOpenNode({ id: 'Central Server', type: 'central' })}
           />
         </Box>
-      ))}
 
-    </Box>
-      {/* ДЕТАЛЬНЫЙ ДИАЛОГ — обновляется в реальном времени + кнопка Prefetch */}
+        {(['A', 'B', 'C', 'D', 'E'] as const).map((letter) => (
+          <Box
+            key={letter}
+            sx={{
+              gridArea:
+                letter === 'A'
+                  ? 'edgeA'
+                  : letter === 'B'
+                  ? 'edgeB'
+                  : letter === 'C'
+                  ? 'edgeC'
+                  : letter === 'D'
+                  ? 'edgeD'
+                  : 'edgeE',
+              height: '100%',
+            }}
+          >
+            <EdgeNodeCard
+              letter={letter}
+              data={edges[letter]}
+              onOpen={() => setOpenNode({ id: `Edge ${letter}`, type: 'edge', letter })}
+              disabled={dnsMode === 'central'}
+            />
+          </Box>
+        ))}
+      </Box>
+
       <Dialog open={!!openNode} onClose={() => setOpenNode(null)} maxWidth="md" fullWidth>
         <DialogTitle>Node Details — {openNode?.id}</DialogTitle>
         <DialogContent dividers>
