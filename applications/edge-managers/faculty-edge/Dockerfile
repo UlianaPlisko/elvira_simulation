@@ -15,10 +15,11 @@ RUN npm install --save-dev @types/cors
 
 RUN npm run build
 
-FROM nginx:alpine
+# ================ Final Stage – Nginx with Brotli ================
+FROM wokalek/nginx-brotli:1.27.1
 
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
-    apk update && \
+# Install your required packages
+RUN apk update && \
     apk add --no-cache \
       nodejs \
       npm \
@@ -33,6 +34,7 @@ COPY infra/nginx/edge.conf.template /etc/nginx/edge.conf.template
 RUN mkdir -p /var/cache/nginx/elvira_cache /var/log/edge /var/www/elvira && \
     chown -R nginx:nginx /var/cache/nginx /var/www/elvira /var/log/edge || true
 
+# Copy Node app
 COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/node_modules /app/node_modules
 COPY applications/edge-managers/faculty-edge/package.json /app/package.json
@@ -43,6 +45,5 @@ RUN chmod +x /app/entrypoint.sh
 WORKDIR /app
 
 EXPOSE 80 9100 3000-3010
-
 
 ENTRYPOINT ["/app/entrypoint.sh"]

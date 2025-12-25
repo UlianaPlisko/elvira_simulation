@@ -1,6 +1,6 @@
 // UseCase2.tsx - New component for /use-case2 route
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Container,
   Typography,
@@ -18,7 +18,7 @@ import {
   Slider,
   Grid,
 } from '@mui/material';
-import { startUseCase2 } from './../services/api'; // Assuming api.ts is in the same directory or adjust import path
+import { startUseCase2, downloadUseCase2Results, checkUseCase2HasResults } from './../services/api'; // Assuming api.ts is in the same directory or adjust import path
 
 export default function UseCase2() {
   const [strategy, setStrategy] = useState<1 | 2 | 3>(1);
@@ -27,32 +27,64 @@ export default function UseCase2() {
   const [level, setLevel] = useState(6); // Default compression level (1-9 for gzip)
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hasResults, setHasResults] = useState(false);
 
   // Hardcoded book options with sizes (replace with actual sizes if known; assuming placeholders)
   const books = [
     { value: 'book1.pdf', label: 'book1.pdf (1 MB)' },
     { value: 'book2.pdf', label: 'book2.pdf (2 MB)' },
-    { value: 'book3.pdf', label: 'book3.pdf (3 MB)' },
-    { value: 'book4.pdf', label: 'book4.pdf (4 MB)' },
+    { value: 'book3.pdf', label: 'book3.pdf (6 MB)' },
+    { value: 'book4.pdf', label: 'book4.pdf (10 MB)' },
+    { value: 'book5.pdf', label: 'book5.pdf (15 MB)' },
   ];
 
   // Possible compression algos (based on common ones; adjust per backend support)
   const algos = [
-    { value: 'gzip', label: 'GZIP' }
-    // { value: 'brotli', label: 'Brotli' },
-    // { value: 'zstd', label: 'Zstandard' }, // Added Zstandard as mentioned in the notes
+    { value: 'gzip', label: 'GZIP' },
+    { value: 'brotli', label: 'Brotli' }
   ];
+
+  useEffect(() => {
+    const checkResults = async () => {
+      try {
+        const response = await checkUseCase2HasResults();
+        setHasResults(response.data.hasResults);
+      } catch (error) {
+        console.error('Error checking results:', error);
+        setHasResults(false);
+      }
+    };
+    checkResults();
+  }, []);
 
   const handleRun = async () => {
     setLoading(true);
     setStatus(null);
     try {
       await startUseCase2(strategy, file, algo, level);
-      setStatus('Simulation started successfully!');
+      setStatus('Simulation completed successfully!');
+      setHasResults(true); // After successful run, we know there are results
     } catch (error) {
       setStatus(`Error starting simulation: ${error}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      const response = await downloadUseCase2Results();
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'uc2_runs.jsonl');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus('Results downloaded successfully!');
+    } catch (error) {
+      setStatus(`Error downloading results: ${error}`);
     }
   };
 
@@ -136,6 +168,11 @@ export default function UseCase2() {
           {/* Run button */}
           <Button variant="contained" color="primary" onClick={handleRun} disabled={loading}>
             {loading ? 'Running...' : 'Run Simulation'}
+          </Button>
+
+          {/* Download button */}
+          <Button variant="contained" color="secondary" onClick={handleDownload} disabled={!hasResults}>
+            Download Results
           </Button>
 
           {status && <Typography sx={{ color: status.includes('Error') ? 'red' : 'green' }}>{status}</Typography>} {/* Adjusted color for status */}

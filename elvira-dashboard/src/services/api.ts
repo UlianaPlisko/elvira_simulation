@@ -67,3 +67,9 @@ export const getDnsStatus = () => axios.get(`${API_BASE}/dns-status`);
 
 export const startUseCase2 = (strategy: number, file: string, compression: string = 'gzip', level: number = 6) =>
   axios.post(`${API_BASE}/usecase2/start`, { strategy, file, compression, level });
+
+export const downloadUseCase2Results = () =>
+  axios.get(`${API_BASE}/usecase2/download`, { responseType: 'blob' });
+
+export const checkUseCase2HasResults = () =>
+  axios.get(`${API_BASE}/usecase2/has-results`);

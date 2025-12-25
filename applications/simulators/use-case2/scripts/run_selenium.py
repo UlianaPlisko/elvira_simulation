@@ -32,6 +32,8 @@ def create_driver(remote_url: str):
     opts.add_argument('--disable-async-dns')
     opts.add_argument('--disable-features=AsyncDNS,DnsOverHttps')
 
+    opts.add_argument('--enable-brotli')
+
     # Window and user-agent
     opts.add_argument('--window-size=1920,1080')
     opts.add_argument("--disable-features=AcceptCHFrame")
@@ -167,6 +169,17 @@ def main():
 
     try:
         driver = create_driver(args.selenium_remote)
+
+        try:
+            driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
+                'headers': {
+                    'Accept-Encoding': 'gzip, br'
+                }
+            })
+            print("Forced Accept-Encoding: gzip, br", file=sys.stderr)
+        except Exception as e:
+            print("Failed to set extra headers (non-critical):", e, file=sys.stderr)
+
 
         print(f"Navigating to {target_url}...", file=sys.stderr)
         driver.get(target_url)

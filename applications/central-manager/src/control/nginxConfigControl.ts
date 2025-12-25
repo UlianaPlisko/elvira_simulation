@@ -9,7 +9,7 @@ export type Strategy = 1 | 2 | 3;
 export type Algo = 'gzip' | 'brotli';
 
 
-export async function applyCentralNginxConfig(strategy: Strategy, algo: Algo = 'gzip'): Promise<void> {
+export async function applyCentralNginxConfig(strategy: Strategy, algo: Algo): Promise<void> {
   console.log('[NGINX-CENTRAL] Applying config for strategy', strategy);
 
   let booksAlias: string;
@@ -20,7 +20,8 @@ export async function applyCentralNginxConfig(strategy: Strategy, algo: Algo = '
     contentEncoding = '';
   } else {
     booksAlias = '/var/compressed-books/';
-    contentEncoding = algo; 
+    contentEncoding = algo === 'gzip' ? 'gzip'
+                 :  'br';
   }
 
   const templatePath = '/etc/nginx/central.conf.template';
@@ -56,7 +57,7 @@ export async function applyCentralNginxConfig(strategy: Strategy, algo: Algo = '
 }
 
 
-export async function applyEdgeNginxConfig(enableGunzip: boolean): Promise<void> {
+export async function applyEdgeNginxConfig(strategy: Strategy, algo: Algo): Promise<void> {
   const edgeContainers = [
     'facultyA-edge',
     'facultyB-edge',
@@ -65,14 +66,28 @@ export async function applyEdgeNginxConfig(enableGunzip: boolean): Promise<void>
     'facultyE-edge',
   ];
 
-  const gunzipSetting = enableGunzip ? 'on' : 'off';
+  // Determine which decompression to enable
+  let gunzipSetting = 'off';
+  let brotliSetting = 'off';
+
+  if (strategy === 2) {
+    if (algo === 'gzip') {
+      gunzipSetting = 'on';
+    } else if (algo === 'brotli') {
+      brotliSetting = 'on';
+    }
+    // zstd: leave both off (passthrough)
+  }
 
   for (const container of edgeContainers) {
-    console.log(`[NGINX-EDGE] Updating ${container} → gunzip ${gunzipSetting}`);
+    console.log(`[NGINX-EDGE] Updating ${container} → strategy=${strategy} algo=${algo} gunzip=${gunzipSetting} brotli=${brotliSetting}`);
 
     const cmd = `docker exec ${container} sh -c '
+      export STRATEGY="${strategy}" &&
+      export COMPRESS_ALGO="${algo}" &&
       export GUNZIP_SETTING="${gunzipSetting}" && 
-      envsubst "\\\${GUNZIP_SETTING}" < /etc/nginx/edge.conf.template > /etc/nginx/nginx.conf.tmp && 
+      export BROTL_SETTING="${brotliSetting}" && 
+      envsubst "\\\${GUNZIP_SETTING} \\\${BROTL_SETTING}" < /etc/nginx/edge.conf.template > /etc/nginx/nginx.conf.tmp && 
       mv /etc/nginx/nginx.conf.tmp /etc/nginx/nginx.conf && 
       nginx -t && 
       nginx -s reload
@@ -85,7 +100,6 @@ export async function applyEdgeNginxConfig(enableGunzip: boolean): Promise<void>
       console.log(`[NGINX-EDGE] ${container} updated and reloaded`);
     } catch (e: any) {
       console.warn(`[NGINX-EDGE] Failed to update ${container}:`, e.stdout || e.stderr || e);
-      // Не бросаем ошибку — если один edge упал, остальные могут работать
     }
   }
 }

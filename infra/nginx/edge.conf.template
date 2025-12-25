@@ -47,9 +47,11 @@ http {
             proxy_connect_timeout 5s;
             proxy_read_timeout 30s;
 
-            # gunzip вставляется как on/off строка (подставится через envsubst)
             gunzip ${GUNZIP_SETTING};
             gunzip_buffers 32 4k;
+
+            brotli ${BROTL_SETTING};
+            brotli_types application/pdf;
 
             proxy_pass http://central_elvira;
         }

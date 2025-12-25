@@ -244,21 +244,10 @@ app.post('/usecase2/start', async (req, res) => {
 
     // === Apply NGINX configs ===
     await applyCentralNginxConfig(strategy, algo);
-    await applyEdgeNginxConfig(strategy === 2);
+    await applyEdgeNginxConfig(strategy, algo);
 
     console.log('clearing caches');
     await clearEdgeCaches();
-
-    // === Cache warm-up ===
-    const edgeContainer = 'facultyA-edge';
-    const warmCmd = `docker exec ${edgeContainer} sh -c "curl -s -o /dev/null -w '%{http_code} %{time_total}' http://localhost/books/${file}"`;
-    try {
-      const { stdout } = await exec(warmCmd);
-      console.log('[uc2] cache-warm result:', stdout.trim());
-    } catch (e) {
-      console.warn('[uc2] cache-warm failed:', e);
-    }
-    await new Promise(r => setTimeout(r, 800));
 
     // === Energy constants ===
     const originalSize = precomp ? precomp.originalBytes : (await fs.stat(`/var/www/books/${file}`)).size;
@@ -362,7 +351,6 @@ app.post('/usecase2/start', async (req, res) => {
       console.warn('[uc2] selenium failed:', e);
       parsed = null;
     } finally {
-      // Do NOT stop the container — keep it running for accurate metrics
       stopUsecase2Client();
     }
 
@@ -492,6 +480,35 @@ app.get('/dns-status', async (_req, res) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: 'Failed to get DNS status' });
+  }
+});
+
+app.get('/usecase2/download', async (req, res) => {
+  try {
+    const filePath = '/var/log/central/uc2_runs.jsonl';
+    if (!(await fs.stat(filePath)).isFile()) {
+      return res.status(404).json({ error: 'Results file not found' });
+    }
+    res.download(filePath, 'uc2_runs.jsonl');
+  } catch (err: any) {
+    console.error('/usecase2/download error:', err);
+    res.status(500).json({ error: err.message || 'Failed to download results' });
+  }
+});
+
+app.get('/usecase2/has-results', async (req, res) => {
+  try {
+    const filePath = '/var/log/central/uc2_runs.jsonl';
+    const stats = await fs.stat(filePath);
+    const hasResults = stats.isFile() && stats.size > 0;
+    res.json({ hasResults });
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      res.json({ hasResults: false });
+    } else {
+      console.error('/usecase2/has-results error:', err);
+      res.status(500).json({ error: err.message || 'Failed to check results' });
+    }
   }
 });
 
