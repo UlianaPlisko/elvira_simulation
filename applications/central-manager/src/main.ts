@@ -257,8 +257,7 @@ app.post('/usecase2/start', async (req, res) => {
     const CPU_WATTS = Number(process.env.CPU_WATTS) || 15;
 
     const central_to_edge_bytes = strategy === 1 ? originalSize : compressedSize;
-    const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize);
-    const transfer_energy_mJ = (central_to_edge_bytes + edge_to_client_bytes) * STATIC_TRANSFER_MJ_PER_BYTE;
+    const edge_to_client_bytes = strategy === 1 ? originalSize : (strategy === 2 ? originalSize : compressedSize); // Теоретический для сравнения
 
     const central_compress_energy_mJ = precomp ? precomp.central_compress_cpu_s * CPU_WATTS * 1000 : 0;
 
@@ -287,11 +286,12 @@ app.post('/usecase2/start', async (req, res) => {
 
     let client_cpu_s = 0;
     let client_net_rx_bytes = 0;
-    let client_cpu_energy_mJ = 0;
+    let client_processing_energy_mJ = 0;
     let client_network_energy_mJ = 0;
 
     let edge_cpu_s = 0;
     let edge_net_tx_bytes = 0;
+    let edge_processing_energy_mJ = 0;
     let edge_network_energy_mJ = 0;
 
     let parsed: any = null;
@@ -341,11 +341,11 @@ app.post('/usecase2/start', async (req, res) => {
       if (strategy === 2) {
         edge_cpu_s = Math.max(0, edge_cpu_after - edge_cpu_before);
         edge_net_tx_bytes = Math.max(0, edge_tx_after - edge_tx_before);
-        edge_network_energy_mJ = edge_net_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+        edge_network_energy_mJ = edge_net_tx_bytes * STATIC_TRANSFER_MJ_PER_BYTE; // Для отладки, не добавляем в total
       }
 
-      client_cpu_energy_mJ = client_cpu_s * CPU_WATTS * 1000;
-      client_network_energy_mJ = client_net_rx_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+      client_processing_energy_mJ = client_cpu_s * CPU_WATTS * 1000; // Всегда: включает рендеринг PDF + декомпрессию если есть
+      client_network_energy_mJ = client_net_rx_bytes * STATIC_TRANSFER_MJ_PER_BYTE; // Измеренная энергия edge->client
 
     } catch (e) {
       console.warn('[uc2] selenium failed:', e);
@@ -371,14 +371,17 @@ app.post('/usecase2/start', async (req, res) => {
     }
 
     // === Final energies ===
-    const client_decompress_energy_mJ = strategy === 3 ? client_cpu_energy_mJ : 0;
-    const edge_decompress_energy_mJ = strategy === 2 ? edge_cpu_s * CPU_WATTS * 1000 : 0;
+    const network_central_to_edge_mJ = central_to_edge_bytes * STATIC_TRANSFER_MJ_PER_BYTE;
+    const network_edge_to_client_mJ = client_net_rx_bytes * STATIC_TRANSFER_MJ_PER_BYTE; // Используем измеренное для точности
+    const network_energy_mJ = network_central_to_edge_mJ + network_edge_to_client_mJ;
+
+    edge_processing_energy_mJ = strategy === 2 ? edge_cpu_s * CPU_WATTS * 1000 : 0; 
 
     const total_energy_mJ =
-      transfer_energy_mJ +
       central_compress_energy_mJ +
-      edge_decompress_energy_mJ +
-      client_decompress_energy_mJ;
+      edge_processing_energy_mJ +
+      client_processing_energy_mJ +
+      network_energy_mJ;
 
     // === Result object ===
     const result = {
@@ -392,20 +395,21 @@ app.post('/usecase2/start', async (req, res) => {
       metrics: {
         transfer_size_bytes,
         decoded_body_size_bytes: decoded_size_bytes,
-        transfer_energy_mJ: Number(transfer_energy_mJ.toFixed(6)),
+        network_central_to_edge_mJ: Number(network_central_to_edge_mJ.toFixed(6)),
+        network_edge_to_client_mJ: Number(network_edge_to_client_mJ.toFixed(6)),
+        network_energy_mJ: Number(network_energy_mJ.toFixed(6)),
         central_compress_energy_mJ: Number(central_compress_energy_mJ.toFixed(6)),
-        edge_decompress_energy_mJ: Number(edge_decompress_energy_mJ.toFixed(6)),
-        client_decompress_energy_mJ: Number(client_decompress_energy_mJ.toFixed(6)),
+        edge_processing_energy_mJ: Number(edge_processing_energy_mJ.toFixed(6)),
+        client_processing_energy_mJ: Number(client_processing_energy_mJ.toFixed(6)),
         total_energy_mJ: Number(total_energy_mJ.toFixed(6)),
 
         client_cpu_s: Number(client_cpu_s.toFixed(6)),
         client_net_rx_bytes: Math.round(client_net_rx_bytes),
-        client_cpu_energy_mJ: Number(client_cpu_energy_mJ.toFixed(6)),
-        client_network_energy_mJ: Number(client_network_energy_mJ.toFixed(6)),
+        client_network_energy_mJ: Number(client_network_energy_mJ.toFixed(6)), // Для отладки
 
         edge_cpu_s: Number(edge_cpu_s.toFixed(6)),
         edge_net_tx_bytes: Math.round(edge_net_tx_bytes),
-        edge_network_energy_mJ: Number(edge_network_energy_mJ.toFixed(6)),
+        edge_network_energy_mJ: Number(edge_network_energy_mJ.toFixed(6)), // Для отладки
 
         pdf_processing_duration_ms,
         client_was_compressed,
@@ -429,10 +433,10 @@ app.post('/usecase2/start', async (req, res) => {
         level,
         file,
         total_energy_mJ: result.metrics.total_energy_mJ,
-        transfer_energy_mJ: result.metrics.transfer_energy_mJ,
+        network_energy_mJ: result.metrics.network_energy_mJ,
         central_compress_energy_mJ: result.metrics.central_compress_energy_mJ,
-        edge_decompress_energy_mJ: result.metrics.edge_decompress_energy_mJ,
-        client_decompress_energy_mJ: result.metrics.client_decompress_energy_mJ,
+        edge_processing_energy_mJ: result.metrics.edge_processing_energy_mJ,
+        client_processing_energy_mJ: result.metrics.client_processing_energy_mJ,
         compression_ratio: result.metrics.client_compression_ratio,
         pdf_processing_duration_ms: result.metrics.pdf_processing_duration_ms
       },
