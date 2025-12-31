@@ -12,7 +12,8 @@ services:
     volumes:
       - ./mock-content:/var/www/books:ro
       - /var/run/docker.sock:/var/run/docker.sock  # Для доступа к Docker daemon
-      - .:/project:ro
+      - .:/project:rw
+      - ./tmp:/project/tmp
     networks:
       elvira-net:
         ipv4_address: 172.20.0.2

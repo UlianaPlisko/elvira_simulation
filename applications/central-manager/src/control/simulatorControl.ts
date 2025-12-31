@@ -17,10 +17,13 @@ const STUDENT_SERVICES = [
   'student-facultyE',
 ];
 
-const STUDENT_IMAGE_NAME = 'elvira-sim-student:latest';
+const STUDENT_IMAGE_NAME = 'elvira-sim-student';
 
-// .env файл теперь в /tmp — туда писать можно всегда
-const ENV_FILE_PATH = '/tmp/.env.elvira_simulator';
+// Путь внутри контейнера (для записи и чтения в getStatus)
+const CONTAINER_ENV_PATH = path.join(PROJECT_DIR, 'tmp', '.env.elvira_simulator');
+
+// Относительный путь для --env-file (виден хосту от cwd /project)
+const HOST_RELATIVE_ENV_PATH = './tmp/.env.elvira_simulator';
 
 const SELENIUM_IMAGE = 'selenium/standalone-chrome:latest';
 
@@ -33,52 +36,74 @@ async function runCmd(cmd: string, cwd = PROJECT_DIR) {
 
 async function runComposeCommand(command: string): Promise<void> {
   const servicesStr = STUDENT_SERVICES.join(' ');
-  const fullCmd = `docker compose --project-name ${PROJECT_NAME} -f ${COMPOSE_FILE} --env-file ${ENV_FILE_PATH} ${command} ${servicesStr}`;
+  // Ключевое: относительный путь для хоста!
+  const fullCmd = `docker compose --project-name ${PROJECT_NAME} -f ${COMPOSE_FILE} --env-file ${HOST_RELATIVE_ENV_PATH} ${command} ${servicesStr}`;
   console.log('[sim-control] running:', fullCmd);
   await execAsync(fullCmd, { cwd: PROJECT_DIR });
 }
 
+// runCompose без изменений
 async function runCompose(cmd: string) {
-  const servicesStr ='selenium-client';
-  const fullCmd = `docker compose --project-name ${PROJECT_NAME} -f ${COMPOSE_FILE} ${cmd}  ${servicesStr}`;
+  const servicesStr = 'selenium-client';
+  const fullCmd = `docker compose --project-name ${PROJECT_NAME} -f ${COMPOSE_FILE} ${cmd} ${servicesStr}`;
   console.log('[usecase2-control] →', fullCmd);
   const { stdout, stderr } = await execAsync(fullCmd, { cwd: PROJECT_DIR });
   if (stderr?.trim()) console.log('[usecase2-control] stderr:', stderr.trim());
   return stdout;
 }
 
-// Создаём .env в /tmp
+// Создаём файл внутри контейнера (в shared volume)
 async function createTempEnvFile(mode: 'normal' | 'exam'): Promise<void> {
-  await fs.promises.writeFile(ENV_FILE_PATH, `SIM_MODE=${mode}\n`, 'utf-8');
-  console.log(`[sim-control] Created env file ${ENV_FILE_PATH} → SIM_MODE=${mode}`);
+  await fs.promises.mkdir(path.dirname(CONTAINER_ENV_PATH), { recursive: true });
+  await fs.promises.writeFile(CONTAINER_ENV_PATH, `SIM_MODE=${mode}\n`, 'utf-8');
+  console.log(`[sim-control] Created env file (container path): ${CONTAINER_ENV_PATH} → SIM_MODE=${mode}`);
+
+  // Проверка существования
+  try {
+    const stats = await fs.promises.stat(CONTAINER_ENV_PATH);
+    console.log(`[sim-control] Env file size: ${stats.size} bytes`);
+  } catch (e) {
+    console.error('[sim-control] Failed to verify env file!', e);
+  }
 }
 
 async function removeTempEnvFile(): Promise<void> {
-  try { await fs.promises.unlink(ENV_FILE_PATH); } catch {}
+  try {
+    await fs.promises.unlink(CONTAINER_ENV_PATH);
+    console.log(`[sim-control] Removed env file ${CONTAINER_ENV_PATH}`);
+  } catch {}
 }
 
 // ====================== PUBLIC API ======================
 
 export async function startSimulator(mode: 'normal' | 'exam' = 'exam'): Promise<string> {
   try {
-    // Build если нет образа
-    try {
-      await runCmd(`docker image inspect ${STUDENT_IMAGE_NAME}`);
-    } catch {
-      console.log('[sim-control] Building image...');
-      await runComposeCommand('build');
-    }
+  //   // Build (здесь --env-file НЕ нужен, т.к. SIM_MODE не используется на build этапе)
+  //   try {
+  //     await runCmd(`docker image inspect ${STUDENT_IMAGE_NAME}`);
+  //   } catch {
+  //     console.log('[sim-control] Building image...');
+  //     // Для build используем команду БЕЗ --env-file (SIM_MODE не нужен на build)
+  //     const servicesStr = STUDENT_SERVICES.join(' ');
+  //     const buildCmd = `docker compose --project-name ${PROJECT_NAME} -f ${COMPOSE_FILE} build ${servicesStr}`;
+  //     console.log('[sim-control] running build without env-file:', buildCmd);
+  //     await execAsync(buildCmd, { cwd: PROJECT_DIR });
+  //   }
 
     // Удаляем старые контейнеры
     for (const s of STUDENT_SERVICES) {
       await runCmd(`docker rm -f ${s}`).catch(() => {});
     }
 
-    // Создаём .env в /tmp
+    // Создаём env-файл
     await createTempEnvFile(mode);
 
-    // Запускаем ТОЛЬКО студентов (central/edges/prometheus НЕ трогаются!)
+    // Небольшая пауза на sync (редко нужно, но на всякий)
+    await new Promise(r => setTimeout(r, 300));
+
+    // Запускаем с --env-file (относительный путь!)
     await runComposeCommand('up -d --force-recreate --no-deps');
+
     console.log('[sim-control] Simulator started in mode:', mode);
     return `Simulator started in "${mode}" mode (5 faculties, 10 min)`;
   } catch (err: any) {
@@ -109,7 +134,7 @@ export async function getSimulatorStatus(): Promise<{
 
   for (const service of STUDENT_SERVICES) {
     try {
-      const { stdout } = await runCmd(`docker ps --filter "name=^${PROJECT_NAME}_${service}$" --format "{{.State}}"`);
+      const { stdout } = await runCmd(`docker ps --filter "name=^${service}$" --format "{{.State}}"`);
       const state = stdout.trim();
       const running = state === 'running';
       services[service] = running;
@@ -122,10 +147,12 @@ export async function getSimulatorStatus(): Promise<{
 
   let currentMode: 'normal' | 'exam' | null = null;
   try {
-    const content = await fs.promises.readFile(ENV_FILE_PATH, 'utf-8');
+    const content = await fs.promises.readFile(CONTAINER_ENV_PATH, 'utf-8');
     if (content.includes('normal')) currentMode = 'normal';
     else if (content.includes('exam')) currentMode = 'exam';
-  } catch {}
+  } catch {
+    // Файл удалён или симулятор остановлен
+  }
 
   return { running: allRunning, currentMode, services };
 }
