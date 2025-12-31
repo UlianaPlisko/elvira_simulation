@@ -50,9 +50,6 @@ http {
             gunzip ${GUNZIP_SETTING};
             gunzip_buffers 32 4k;
 
-            brotli ${BROTL_SETTING};
-            brotli_types application/pdf;
-
             proxy_pass http://central_elvira;
         }
 
